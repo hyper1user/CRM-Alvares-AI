@@ -9,6 +9,14 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Security: exclude any data files that might accidentally end up in project root
+  - '!**/*.xlsx'
+  - '!**/*.xls'
+  - '!**/*.csv'
+  - '!**/*.db'
+  - '!**/*.sqlite'
+  - '!**/*.docx'
+  - '!**/*.pdf'
 asarUnpack:
   - resources/**
 win:
@@ -22,3 +30,9 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 npmRebuild: false
+publish:
+  provider: github
+  owner: hyper1user
+  repo: ejoos-plus
+  private: true
+  releaseType: release

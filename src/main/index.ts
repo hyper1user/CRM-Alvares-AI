@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase } from './db/connection'
 import { registerIpcHandlers } from './ipc'
+import { initAutoUpdater } from './updater'
 
 // Fix flickering on Windows — disable GPU acceleration if problematic
 app.commandLine.appendSwitch('disable-gpu-compositing')
@@ -56,6 +57,9 @@ app.whenReady().then(() => {
   registerIpcHandlers()
 
   createWindow()
+
+  // Auto-updater (only in production)
+  initAutoUpdater()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

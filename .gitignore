@@ -1,16 +1,51 @@
 node_modules/
 out/
 dist/
+
+# === БЕЗПЕКА: персональні дані ===
+# БД з особовим складом — НІКОЛИ не комітити
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
+
+# Excel-файли з даними ОС
+*.xlsx
+*.xls
+*.csv
+
+# Згенеровані документи (накази, відпустки — містять ПД)
+*.docx
+*.doc
+*.pdf
+
+# Шаблони заповнені даними
+generated-documents/
+
+# Бекапи БД
 backups/
+
+# === Середовище ===
 .env
 .env.*
 *.log
 *.log.*
+
+# === ОС ===
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Build artifacts ===
 *.exe
 *.msi
+*.blockmap
+builder-debug.yml
