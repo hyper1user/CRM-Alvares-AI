@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import ProLayout from '@ant-design/pro-layout'
+import { Layout, Menu, Tag, Space, theme } from 'antd'
+import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   DashboardOutlined,
@@ -21,94 +22,109 @@ import {
   FolderOutlined,
   MedicineBoxOutlined,
   FileProtectOutlined,
-  DatabaseOutlined
+  DatabaseOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined
 } from '@ant-design/icons'
-import { Tag } from 'antd'
 import dayjs from 'dayjs'
 import AppRoutes from '../../routes'
 
-const menuRoutes = {
-  route: {
-    path: '/',
-    routes: [
-      {
-        path: '/',
-        name: 'Головна',
-        icon: <DashboardOutlined />
-      },
-      {
-        path: '/personnel-group',
-        name: 'Особовий склад',
-        icon: <TeamOutlined />,
-        routes: [
-          { path: '/personnel', name: 'Реєстр', icon: <UnorderedListOutlined /> },
-          { path: '/personnel/excluded', name: 'Виключені', icon: <UserDeleteOutlined /> }
-        ]
-      },
-      {
-        path: '/structure-group',
-        name: 'Штат та посади',
-        icon: <ApartmentOutlined />,
-        routes: [
-          { path: '/org-structure', name: 'Орг. структура', icon: <BranchesOutlined /> },
-          { path: '/staffing', name: 'ШПО', icon: <TableOutlined /> },
-          { path: '/positions', name: 'Перелік посад', icon: <SolutionOutlined /> }
-        ]
-      },
-      {
-        path: '/movements',
-        name: 'Переміщення',
-        icon: <SwapOutlined />
-      },
-      {
-        path: '/statuses',
-        name: 'Статуси',
-        icon: <TagsOutlined />
-      },
-      {
-        path: '/attendance-group',
-        name: 'Табель',
-        icon: <CalendarOutlined />,
-        routes: [
-          { path: '/attendance', name: 'Місячний табель', icon: <CalendarOutlined /> },
-          { path: '/formation-report', name: 'Стройова записка', icon: <FormOutlined /> }
-        ]
-      },
-      {
-        path: '/documents-group',
-        name: 'Документи',
-        icon: <FileTextOutlined />,
-        routes: [
-          { path: '/orders', name: 'Накази', icon: <FileProtectOutlined /> },
-          { path: '/leave', name: 'Відпустки', icon: <FileTextOutlined /> },
-          { path: '/injuries', name: 'Поранення / Втрати', icon: <MedicineBoxOutlined /> },
-          { path: '/documents/generate', name: 'Генератор', icon: <FormOutlined /> },
-          { path: '/documents/archive', name: 'Архів', icon: <FolderOutlined /> }
-        ]
-      },
-      {
-        path: '/statistics',
-        name: 'Статистика',
-        icon: <BarChartOutlined />
-      },
-      {
-        path: '/import-export',
-        name: 'Імпорт / Експорт',
-        icon: <ImportOutlined />
-      },
-      {
-        path: '/settings',
-        name: 'Налаштування',
-        icon: <SettingOutlined />
-      }
+const { Header, Sider, Content } = Layout
+
+type MenuItem = Required<MenuProps>['items'][number]
+
+const menuItems: MenuItem[] = [
+  {
+    key: '/',
+    icon: <DashboardOutlined />,
+    label: 'Головна'
+  },
+  {
+    key: 'personnel-group',
+    icon: <TeamOutlined />,
+    label: 'Особовий склад',
+    children: [
+      { key: '/personnel', icon: <UnorderedListOutlined />, label: 'Реєстр' },
+      { key: '/personnel/excluded', icon: <UserDeleteOutlined />, label: 'Виключені' }
     ]
+  },
+  {
+    key: 'structure-group',
+    icon: <ApartmentOutlined />,
+    label: 'Штат та посади',
+    children: [
+      { key: '/org-structure', icon: <BranchesOutlined />, label: 'Орг. структура' },
+      { key: '/staffing', icon: <TableOutlined />, label: 'ШПО' },
+      { key: '/positions', icon: <SolutionOutlined />, label: 'Перелік посад' }
+    ]
+  },
+  {
+    key: '/movements',
+    icon: <SwapOutlined />,
+    label: 'Переміщення'
+  },
+  {
+    key: '/statuses',
+    icon: <TagsOutlined />,
+    label: 'Статуси'
+  },
+  {
+    key: 'attendance-group',
+    icon: <CalendarOutlined />,
+    label: 'Табель',
+    children: [
+      { key: '/attendance', icon: <CalendarOutlined />, label: 'Місячний табель' },
+      { key: '/formation-report', icon: <FormOutlined />, label: 'Стройова записка' }
+    ]
+  },
+  {
+    key: 'documents-group',
+    icon: <FileTextOutlined />,
+    label: 'Документи',
+    children: [
+      { key: '/orders', icon: <FileProtectOutlined />, label: 'Накази' },
+      { key: '/leave', icon: <FileTextOutlined />, label: 'Відпустки' },
+      { key: '/injuries', icon: <MedicineBoxOutlined />, label: 'Поранення / Втрати' },
+      { key: '/documents/generate', icon: <FormOutlined />, label: 'Генератор' },
+      { key: '/documents/archive', icon: <FolderOutlined />, label: 'Архів' }
+    ]
+  },
+  {
+    key: '/statistics',
+    icon: <BarChartOutlined />,
+    label: 'Статистика'
+  },
+  {
+    key: '/import-export',
+    icon: <ImportOutlined />,
+    label: 'Імпорт / Експорт'
+  },
+  {
+    key: '/settings',
+    icon: <SettingOutlined />,
+    label: 'Налаштування'
   }
+]
+
+function findOpenKey(pathname: string): string[] {
+  for (const item of menuItems) {
+    if (item && 'children' in item && item.children) {
+      for (const child of item.children as { key: string }[]) {
+        if (child.key === pathname) {
+          return [item.key as string]
+        }
+      }
+    }
+  }
+  return []
 }
 
 export default function AppLayout(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
   const [dbStatus, setDbStatus] = useState<string>('')
+  const { token } = theme.useToken()
 
   useEffect(() => {
     window.api.dbHealth().then((result: { ok: boolean; message: string }) => {
@@ -116,43 +132,100 @@ export default function AppLayout(): JSX.Element {
     })
   }, [])
 
+  const onMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key.startsWith('/')) {
+      navigate(key)
+    }
+  }
+
   return (
-    <ProLayout
-      title="ЕЖООС+"
-      logo={<DatabaseOutlined style={{ fontSize: 24, color: '#1677ff' }} />}
-      layout="mix"
-      fixSiderbar
-      fixedHeader
-      {...menuRoutes}
-      location={{ pathname: location.pathname }}
-      menuItemRender={(item, dom) => (
-        <div onClick={() => item.path && navigate(item.path)}>{dom}</div>
-      )}
-      headerContentRender={() => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Tag color="blue">12 ОШР</Tag>
-          <Tag color="green">4 ШБ (А0501)</Tag>
-          <Tag color="orange">92 ОШБр (А1314)</Tag>
-          <span style={{ marginLeft: 'auto', color: '#666', fontSize: 13 }}>
-            {dayjs().format('DD.MM.YYYY dddd')}
-          </span>
-          {dbStatus && (
-            <Tag color={dbStatus === 'OK' ? 'success' : 'error'} style={{ marginLeft: 8 }}>
-              БД: {dbStatus}
-            </Tag>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        width={230}
+        theme="light"
+        style={{
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          borderRight: `1px solid ${token.colorBorderSecondary}`,
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <div
+          style={{
+            height: 48,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? 0 : '0 16px',
+            gap: 8,
+            flexShrink: 0,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`
+          }}
+        >
+          <DatabaseOutlined style={{ fontSize: 22, color: token.colorPrimary }} />
+          {!collapsed && (
+            <span style={{ fontSize: 16, fontWeight: 600 }}>ЕЖООС+</span>
           )}
         </div>
-      )}
-      menuFooterRender={(props) => {
-        if (props?.collapsed) return undefined
-        return (
-          <div style={{ textAlign: 'center', padding: '12px 0', fontSize: 11, color: '#999' }}>
-            ЕЖООС+ v0.1.0
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <Menu
+            mode="inline"
+            selectedKeys={[location.pathname]}
+            defaultOpenKeys={findOpenKey(location.pathname)}
+            items={menuItems}
+            onClick={onMenuClick}
+            style={{ borderRight: 0 }}
+          />
+        </div>
+      </Sider>
+
+      <Layout style={{ marginLeft: collapsed ? 80 : 230, transition: 'margin-left 0.2s', height: '100vh', overflow: 'hidden' }}>
+        <Header
+          style={{
+            padding: '0 24px',
+            background: token.colorBgContainer,
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            height: 48
+          }}
+        >
+          <div
+            onClick={() => setCollapsed(!collapsed)}
+            style={{ fontSize: 16, cursor: 'pointer', marginRight: 16, color: '#666' }}
+          >
+            {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </div>
-        )
-      }}
-    >
-      <AppRoutes />
-    </ProLayout>
+          <Space size={8}>
+            <Tag color="blue">12 ОШР</Tag>
+            <Tag color="green">4 ШБ (А0501)</Tag>
+            <Tag color="orange">92 ОШБр (А1314)</Tag>
+          </Space>
+          <div style={{ flex: 1 }} />
+          <Space size={8}>
+            <span style={{ color: '#666', fontSize: 13 }}>
+              {dayjs().format('DD.MM.YYYY dddd')}
+            </span>
+            {dbStatus && (
+              <Tag color={dbStatus === 'OK' ? 'success' : 'error'}>БД: {dbStatus}</Tag>
+            )}
+          </Space>
+        </Header>
+
+        <Content style={{ margin: 16, overflow: 'auto', flex: 1 }}>
+          <AppRoutes />
+        </Content>
+      </Layout>
+    </Layout>
   )
 }

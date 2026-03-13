@@ -1,8 +1,36 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { getDatabase } from '../db/connection'
 import { IPC } from '@shared/ipc-channels'
-import { ranks, statusTypes, subdivisions, bloodTypes, contractTypes, educationLevels, settings, personnel } from '../db/schema'
-import { eq } from 'drizzle-orm'
+import {
+  ranks,
+  statusTypes,
+  subdivisions,
+  bloodTypes,
+  contractTypes,
+  educationLevels,
+  settings,
+  personnel,
+  positions,
+  movements,
+  statusHistory,
+  attendance,
+  auditLog
+} from '../db/schema'
+import { eq, and, like, or, asc, sql } from 'drizzle-orm'
+import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema } from '@shared/validators'
+import { parseEjoosFile } from '../import/ejoos-parser'
+import { parseDataFile } from '../import/data-parser'
+import { importEjoos, importData } from '../import/import-service'
+import { exportEjoos, exportCsv } from '../export/export-service'
+import {
+  seedDefaultTemplates,
+  listTemplates,
+  getTemplateTagsById,
+  generateDocument,
+  listGeneratedDocuments,
+  openDocument,
+  deleteGeneratedDocument
+} from '../documents/document-service'
 
 export function registerIpcHandlers(): void {
   // DB Health Check
@@ -42,13 +70,611 @@ export function registerIpcHandlers(): void {
     return result
   })
 
-  // Personnel list (базова заглушка)
-  ipcMain.handle(IPC.PERSONNEL_LIST, () => {
+  // ==================== PERSONNEL CRUD ====================
+
+  // Personnel list with filters
+  ipcMain.handle(
+    IPC.PERSONNEL_LIST,
+    (
+      _event,
+      filters?: {
+        search?: string
+        subdivision?: string
+        statusCode?: string
+        category?: string
+        status?: string
+      }
+    ) => {
+      const db = getDatabase()
+      const conditions: ReturnType<typeof eq>[] = []
+
+      // Default: only active
+      const statusFilter = filters?.status || 'active'
+      conditions.push(eq(personnel.status, statusFilter))
+
+      if (filters?.subdivision) {
+        conditions.push(eq(personnel.currentSubdivision, filters.subdivision))
+      }
+
+      if (filters?.statusCode) {
+        conditions.push(eq(personnel.currentStatusCode, filters.statusCode))
+      }
+
+      if (filters?.search) {
+        const pattern = `%${filters.search}%`
+        conditions.push(
+          or(
+            like(personnel.fullName, pattern),
+            like(personnel.ipn, pattern),
+            like(personnel.callsign, pattern)
+          )!
+        )
+      }
+
+      const result = db
+        .select({
+          id: personnel.id,
+          ipn: personnel.ipn,
+          fullName: personnel.fullName,
+          rankName: ranks.name,
+          rankCategory: ranks.category,
+          callsign: personnel.callsign,
+          currentPositionIdx: personnel.currentPositionIdx,
+          currentStatusCode: personnel.currentStatusCode,
+          currentSubdivision: personnel.currentSubdivision,
+          phone: personnel.phone,
+          status: personnel.status
+        })
+        .from(personnel)
+        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .where(and(...conditions))
+        .orderBy(asc(personnel.fullName))
+        .all()
+
+      // Enrich with position title if position index exists
+      const positionRows = db.select().from(positions).all()
+      const posMap = new Map(positionRows.map((p) => [p.positionIndex, p.title]))
+
+      // Enrich with status name
+      const statusRows = db.select().from(statusTypes).all()
+      const statusMap = new Map(statusRows.map((s) => [s.code, s.name]))
+
+      // Filter by rank category if needed
+      let enriched = result.map((row) => ({
+        ...row,
+        positionTitle: row.currentPositionIdx ? (posMap.get(row.currentPositionIdx) ?? null) : null,
+        statusName: row.currentStatusCode
+          ? (statusMap.get(row.currentStatusCode) ?? null)
+          : null
+      }))
+
+      if (filters?.category) {
+        enriched = enriched.filter((r) => r.rankCategory === filters!.category)
+      }
+
+      return enriched
+    }
+  )
+
+  // Personnel get by id
+  ipcMain.handle(IPC.PERSONNEL_GET, (_event, id: number) => {
     const db = getDatabase()
-    return db.select().from(personnel).all()
+
+    const row = db
+      .select()
+      .from(personnel)
+      .where(eq(personnel.id, id))
+      .get()
+
+    if (!row) return null
+
+    // Enrich with rank name and position title
+    let rankName: string | null = null
+    let rankCategory: string | null = null
+    if (row.rankId) {
+      const rank = db.select().from(ranks).where(eq(ranks.id, row.rankId)).get()
+      if (rank) {
+        rankName = rank.name
+        rankCategory = rank.category
+      }
+    }
+
+    let positionTitle: string | null = null
+    if (row.currentPositionIdx) {
+      const pos = db
+        .select()
+        .from(positions)
+        .where(eq(positions.positionIndex, row.currentPositionIdx))
+        .get()
+      if (pos) positionTitle = pos.title
+    }
+
+    let statusName: string | null = null
+    if (row.currentStatusCode) {
+      const st = db
+        .select()
+        .from(statusTypes)
+        .where(eq(statusTypes.code, row.currentStatusCode))
+        .get()
+      if (st) statusName = st.name
+    }
+
+    return { ...row, rankName, rankCategory, positionTitle, statusName }
   })
 
-  // Довідники
+  // Personnel create
+  ipcMain.handle(IPC.PERSONNEL_CREATE, (_event, data: Record<string, unknown>) => {
+    const parsed = personnelCreateSchema.safeParse(data)
+    if (!parsed.success) {
+      return { error: true, issues: parsed.error.issues }
+    }
+
+    const db = getDatabase()
+    const input = parsed.data
+
+    // Build fullName
+    const fullName = [input.lastName, input.firstName, input.patronymic].filter(Boolean).join(' ')
+
+    // Clean empty strings to null
+    const cleaned: Record<string, unknown> = { fullName }
+    for (const [key, value] of Object.entries(input)) {
+      cleaned[key] = value === '' ? null : value
+    }
+
+    const result = db
+      .insert(personnel)
+      .values(cleaned as typeof personnel.$inferInsert)
+      .returning()
+      .get()
+
+    // Audit log
+    db.insert(auditLog)
+      .values({
+        tableName: 'personnel',
+        recordId: result.id,
+        action: 'create',
+        newValues: JSON.stringify(cleaned)
+      })
+      .run()
+
+    return result
+  })
+
+  // Personnel update
+  ipcMain.handle(
+    IPC.PERSONNEL_UPDATE,
+    (_event, id: number, data: Record<string, unknown>) => {
+      const parsed = personnelUpdateSchema.safeParse(data)
+      if (!parsed.success) {
+        return { error: true, issues: parsed.error.issues }
+      }
+
+      const db = getDatabase()
+      const input = parsed.data
+
+      // Rebuild fullName if name fields changed
+      const updates: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(input)) {
+        updates[key] = value === '' ? null : value
+      }
+
+      if (input.lastName || input.firstName || input.patronymic) {
+        const existing = db.select().from(personnel).where(eq(personnel.id, id)).get()
+        if (existing) {
+          const lastName = input.lastName || existing.lastName
+          const firstName = input.firstName || existing.firstName
+          const patronymic =
+            input.patronymic !== undefined ? input.patronymic : existing.patronymic
+          updates.fullName = [lastName, firstName, patronymic].filter(Boolean).join(' ')
+        }
+      }
+
+      updates.updatedAt = sql`datetime('now')`
+
+      // Get old values for audit
+      const oldRow = db.select().from(personnel).where(eq(personnel.id, id)).get()
+
+      db.update(personnel)
+        .set(updates as Partial<typeof personnel.$inferInsert>)
+        .where(eq(personnel.id, id))
+        .run()
+
+      // Audit log
+      db.insert(auditLog)
+        .values({
+          tableName: 'personnel',
+          recordId: id,
+          action: 'update',
+          oldValues: JSON.stringify(oldRow),
+          newValues: JSON.stringify(updates)
+        })
+        .run()
+
+      return db.select().from(personnel).where(eq(personnel.id, id)).get()
+    }
+  )
+
+  // Personnel delete (soft — set status to 'excluded')
+  ipcMain.handle(IPC.PERSONNEL_DELETE, (_event, id: number) => {
+    const db = getDatabase()
+
+    db.update(personnel)
+      .set({ status: 'excluded', updatedAt: sql`datetime('now')` })
+      .where(eq(personnel.id, id))
+      .run()
+
+    db.insert(auditLog)
+      .values({
+        tableName: 'personnel',
+        recordId: id,
+        action: 'soft_delete',
+        newValues: JSON.stringify({ status: 'excluded' })
+      })
+      .run()
+
+    return { ok: true }
+  })
+
+  // Personnel search (alias — uses same logic as list with search filter)
+  ipcMain.handle(IPC.PERSONNEL_SEARCH, (_event, query: string) => {
+    const db = getDatabase()
+    const pattern = `%${query}%`
+
+    const result = db
+      .select({
+        id: personnel.id,
+        ipn: personnel.ipn,
+        fullName: personnel.fullName,
+        rankName: ranks.name,
+        rankCategory: ranks.category,
+        callsign: personnel.callsign,
+        currentPositionIdx: personnel.currentPositionIdx,
+        currentStatusCode: personnel.currentStatusCode,
+        currentSubdivision: personnel.currentSubdivision,
+        phone: personnel.phone,
+        status: personnel.status
+      })
+      .from(personnel)
+      .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+      .where(
+        and(
+          eq(personnel.status, 'active'),
+          or(
+            like(personnel.fullName, pattern),
+            like(personnel.ipn, pattern),
+            like(personnel.callsign, pattern)
+          )
+        )
+      )
+      .orderBy(asc(personnel.fullName))
+      .all()
+
+    return result
+  })
+
+  // ==================== POSITIONS CRUD ====================
+
+  // Positions list with filters + occupant enrichment
+  ipcMain.handle(
+    IPC.POSITIONS_LIST,
+    (
+      _event,
+      filters?: {
+        subdivisionId?: number
+        isActive?: boolean
+        search?: string
+        occupancy?: 'all' | 'occupied' | 'vacant' | 'deactivated'
+      }
+    ) => {
+      const db = getDatabase()
+
+      // Get all positions with subdivision info
+      const allPos = db
+        .select({
+          id: positions.id,
+          positionIndex: positions.positionIndex,
+          subdivisionId: positions.subdivisionId,
+          title: positions.title,
+          detail: positions.detail,
+          fullTitle: positions.fullTitle,
+          rankRequired: positions.rankRequired,
+          specialtyCode: positions.specialtyCode,
+          tariffGrade: positions.tariffGrade,
+          staffNumber: positions.staffNumber,
+          isActive: positions.isActive,
+          notes: positions.notes,
+          subdivisionCode: subdivisions.code,
+          subdivisionName: subdivisions.name
+        })
+        .from(positions)
+        .leftJoin(subdivisions, eq(positions.subdivisionId, subdivisions.id))
+        .orderBy(asc(positions.positionIndex))
+        .all()
+
+      // Get active personnel mapped to position indices
+      const activePersonnel = db
+        .select({
+          id: personnel.id,
+          fullName: personnel.fullName,
+          rankName: ranks.name,
+          currentPositionIdx: personnel.currentPositionIdx
+        })
+        .from(personnel)
+        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .where(eq(personnel.status, 'active'))
+        .all()
+
+      const personnelByPos = new Map<string, { id: number; fullName: string; rankName: string | null }>()
+      for (const p of activePersonnel) {
+        if (p.currentPositionIdx) {
+          personnelByPos.set(p.currentPositionIdx, {
+            id: p.id,
+            fullName: p.fullName,
+            rankName: p.rankName
+          })
+        }
+      }
+
+      // Enrich positions with occupant info
+      let result = allPos.map((pos) => {
+        const occupant = personnelByPos.get(pos.positionIndex)
+        return {
+          ...pos,
+          occupantId: occupant?.id ?? null,
+          occupantName: occupant?.fullName ?? null,
+          occupantRank: occupant?.rankName ?? null
+        }
+      })
+
+      // Apply filters
+      if (filters?.subdivisionId) {
+        result = result.filter((p) => p.subdivisionId === filters.subdivisionId)
+      }
+
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        result = result.filter(
+          (p) =>
+            p.positionIndex.toLowerCase().includes(q) ||
+            p.title.toLowerCase().includes(q) ||
+            (p.occupantName && p.occupantName.toLowerCase().includes(q))
+        )
+      }
+
+      if (filters?.occupancy === 'occupied') {
+        result = result.filter((p) => p.isActive && p.occupantId !== null)
+      } else if (filters?.occupancy === 'vacant') {
+        result = result.filter((p) => p.isActive && p.occupantId === null)
+      } else if (filters?.occupancy === 'deactivated') {
+        result = result.filter((p) => !p.isActive)
+      } else if (filters?.isActive !== undefined) {
+        result = result.filter((p) => p.isActive === filters.isActive)
+      }
+
+      return result
+    }
+  )
+
+  // Position get by id
+  ipcMain.handle(IPC.POSITIONS_GET, (_event, id: number) => {
+    const db = getDatabase()
+
+    const pos = db
+      .select({
+        id: positions.id,
+        positionIndex: positions.positionIndex,
+        subdivisionId: positions.subdivisionId,
+        title: positions.title,
+        detail: positions.detail,
+        fullTitle: positions.fullTitle,
+        rankRequired: positions.rankRequired,
+        specialtyCode: positions.specialtyCode,
+        tariffGrade: positions.tariffGrade,
+        staffNumber: positions.staffNumber,
+        isActive: positions.isActive,
+        notes: positions.notes,
+        subdivisionCode: subdivisions.code,
+        subdivisionName: subdivisions.name
+      })
+      .from(positions)
+      .leftJoin(subdivisions, eq(positions.subdivisionId, subdivisions.id))
+      .where(eq(positions.id, id))
+      .get()
+
+    if (!pos) return null
+
+    // Find occupant
+    const occupant = db
+      .select({
+        id: personnel.id,
+        fullName: personnel.fullName,
+        rankName: ranks.name
+      })
+      .from(personnel)
+      .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+      .where(and(eq(personnel.currentPositionIdx, pos.positionIndex), eq(personnel.status, 'active')))
+      .get()
+
+    return {
+      ...pos,
+      occupantId: occupant?.id ?? null,
+      occupantName: occupant?.fullName ?? null,
+      occupantRank: occupant?.rankName ?? null
+    }
+  })
+
+  // Position create
+  ipcMain.handle(IPC.POSITIONS_CREATE, (_event, data: Record<string, unknown>) => {
+    const parsed = positionCreateSchema.safeParse(data)
+    if (!parsed.success) {
+      return { error: true, issues: parsed.error.issues }
+    }
+
+    const db = getDatabase()
+    const input = parsed.data
+
+    // Clean empty strings to null
+    const cleaned: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(input)) {
+      cleaned[key] = value === '' ? null : value
+    }
+
+    const result = db
+      .insert(positions)
+      .values(cleaned as typeof positions.$inferInsert)
+      .returning()
+      .get()
+
+    db.insert(auditLog)
+      .values({
+        tableName: 'positions',
+        recordId: result.id,
+        action: 'create',
+        newValues: JSON.stringify(cleaned)
+      })
+      .run()
+
+    return result
+  })
+
+  // Position update
+  ipcMain.handle(
+    IPC.POSITIONS_UPDATE,
+    (_event, id: number, data: Record<string, unknown>) => {
+      const parsed = positionUpdateSchema.safeParse(data)
+      if (!parsed.success) {
+        return { error: true, issues: parsed.error.issues }
+      }
+
+      const db = getDatabase()
+      const input = parsed.data
+
+      const updates: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(input)) {
+        updates[key] = value === '' ? null : value
+      }
+
+      const oldRow = db.select().from(positions).where(eq(positions.id, id)).get()
+
+      db.update(positions)
+        .set(updates as Partial<typeof positions.$inferInsert>)
+        .where(eq(positions.id, id))
+        .run()
+
+      db.insert(auditLog)
+        .values({
+          tableName: 'positions',
+          recordId: id,
+          action: 'update',
+          oldValues: JSON.stringify(oldRow),
+          newValues: JSON.stringify(updates)
+        })
+        .run()
+
+      return db.select().from(positions).where(eq(positions.id, id)).get()
+    }
+  )
+
+  // ==================== SUBDIVISIONS TREE ====================
+
+  ipcMain.handle(IPC.SUBDIVISIONS_TREE, () => {
+    const db = getDatabase()
+
+    const allSubs = db.select().from(subdivisions).orderBy(asc(subdivisions.sortOrder)).all()
+    const allPositions = db.select().from(positions).where(eq(positions.isActive, true)).all()
+    const activePersonnel = db
+      .select({
+        id: personnel.id,
+        currentSubdivision: personnel.currentSubdivision,
+        currentPositionIdx: personnel.currentPositionIdx
+      })
+      .from(personnel)
+      .where(eq(personnel.status, 'active'))
+      .all()
+
+    // Build code-to-id map and count maps
+    const codeToSub = new Map(allSubs.map((s) => [s.code, s]))
+
+    // Count positions per subdivision
+    const posCountBySubId = new Map<number, number>()
+    for (const p of allPositions) {
+      posCountBySubId.set(p.subdivisionId, (posCountBySubId.get(p.subdivisionId) || 0) + 1)
+    }
+
+    // Count personnel per subdivision (by code)
+    const persCountByCode = new Map<string, number>()
+    for (const p of activePersonnel) {
+      if (p.currentSubdivision) {
+        persCountByCode.set(p.currentSubdivision, (persCountByCode.get(p.currentSubdivision) || 0) + 1)
+      }
+    }
+
+    // Count occupied positions per subdivision
+    const occupiedPosIdx = new Set(activePersonnel.map((p) => p.currentPositionIdx).filter(Boolean))
+    const occupiedBySubId = new Map<number, number>()
+    for (const p of allPositions) {
+      if (occupiedPosIdx.has(p.positionIndex)) {
+        occupiedBySubId.set(p.subdivisionId, (occupiedBySubId.get(p.subdivisionId) || 0) + 1)
+      }
+    }
+
+    // Build tree nodes
+    type TreeNode = typeof allSubs[0] & {
+      children: TreeNode[]
+      personnelCount: number
+      positionCount: number
+      vacantCount: number
+    }
+
+    const nodes: TreeNode[] = allSubs.map((s) => {
+      const posCount = posCountBySubId.get(s.id) || 0
+      const persCount = persCountByCode.get(s.code) || 0
+      const occupiedCount = occupiedBySubId.get(s.id) || 0
+      return {
+        ...s,
+        children: [],
+        personnelCount: persCount,
+        positionCount: posCount,
+        vacantCount: posCount - occupiedCount
+      }
+    })
+
+    const nodeById = new Map(nodes.map((n) => [n.id, n]))
+    const roots: TreeNode[] = []
+
+    for (const node of nodes) {
+      if (node.parentId && nodeById.has(node.parentId)) {
+        nodeById.get(node.parentId)!.children.push(node)
+      } else {
+        roots.push(node)
+      }
+    }
+
+    return roots
+  })
+
+  // Subdivision update
+  ipcMain.handle(
+    IPC.SUBDIVISIONS_UPDATE,
+    (_event, id: number, data: Record<string, unknown>) => {
+      const db = getDatabase()
+
+      const updates: Record<string, unknown> = {}
+      if (data.name !== undefined) updates.name = data.name
+      if (data.fullName !== undefined) updates.fullName = data.fullName
+      if (data.isActive !== undefined) updates.isActive = data.isActive
+
+      db.update(subdivisions)
+        .set(updates as Partial<typeof subdivisions.$inferInsert>)
+        .where(eq(subdivisions.id, id))
+        .run()
+
+      return db.select().from(subdivisions).where(eq(subdivisions.id, id)).get()
+    }
+  )
+
+  // ==================== LOOKUPS ====================
+
   ipcMain.handle(IPC.RANKS_LIST, () => {
     const db = getDatabase()
     return db.select().from(ranks).all()
@@ -77,6 +703,935 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.EDUCATION_LEVELS_LIST, () => {
     const db = getDatabase()
     return db.select().from(educationLevels).all()
+  })
+
+  // ==================== IMPORT ====================
+
+  // Open file dialog
+  ipcMain.handle(
+    IPC.OPEN_FILE_DIALOG,
+    async (_event, filters?: { name: string; extensions: string[] }[]) => {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(win!, {
+        properties: ['openFile'],
+        filters: filters || [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return result.filePaths[0]
+    }
+  )
+
+  // EJOOS preview (parse only, no DB writes)
+  ipcMain.handle(IPC.IMPORT_EJOOS_PREVIEW, (_event, filePath: string) => {
+    try {
+      return parseEjoosFile(filePath)
+    } catch (error) {
+      return { error: true, message: String(error) }
+    }
+  })
+
+  // EJOOS confirm (parse + write to DB)
+  ipcMain.handle(IPC.IMPORT_EJOOS_CONFIRM, (_event, filePath: string) => {
+    try {
+      const parsed = parseEjoosFile(filePath)
+      return importEjoos(parsed)
+    } catch (error) {
+      return {
+        success: false,
+        imported: { positions: 0, personnel: 0, movements: 0, statuses: 0 },
+        errors: [String(error)]
+      }
+    }
+  })
+
+  // Data.xlsx import (parse + enrich personnel)
+  ipcMain.handle(IPC.IMPORT_DATA, (_event, filePath: string) => {
+    try {
+      // Get existing IPNs for matching
+      const db = getDatabase()
+      const existingPersonnel = db
+        .select({ ipn: personnel.ipn })
+        .from(personnel)
+        .all()
+      const existingIpns = new Set(existingPersonnel.map((p) => p.ipn))
+
+      const parsed = parseDataFile(filePath, existingIpns)
+
+      // If called with just filePath, return preview first
+      return {
+        preview: {
+          records: parsed.records,
+          errors: parsed.errors,
+          stats: parsed.stats
+        },
+        // Also run import immediately
+        result: importData(parsed.records)
+      }
+    } catch (error) {
+      return {
+        preview: null,
+        result: { success: false, updated: 0, skipped: 0, errors: [String(error)] }
+      }
+    }
+  })
+
+  // ==================== MOVEMENTS ====================
+
+  // Movements list with filters
+  ipcMain.handle(
+    IPC.MOVEMENTS_LIST,
+    (
+      _event,
+      filters?: {
+        search?: string
+        subdivision?: string
+        orderType?: string
+        dateFrom?: string
+        dateTo?: string
+        isActive?: boolean
+        personnelId?: number
+      }
+    ) => {
+      const db = getDatabase()
+
+      // Get all movements with personnel info
+      const allMovements = db
+        .select({
+          id: movements.id,
+          personnelId: movements.personnelId,
+          orderIssuer: movements.orderIssuer,
+          orderNumber: movements.orderNumber,
+          orderDate: movements.orderDate,
+          orderType: movements.orderType,
+          positionIndex: movements.positionIndex,
+          dailyOrderNumber: movements.dailyOrderNumber,
+          dateFrom: movements.dateFrom,
+          dateTo: movements.dateTo,
+          previousPosition: movements.previousPosition,
+          isActive: movements.isActive,
+          notes: movements.notes,
+          createdAt: movements.createdAt,
+          fullName: personnel.fullName,
+          rankName: ranks.name,
+          ipn: personnel.ipn,
+          currentSubdivision: personnel.currentSubdivision
+        })
+        .from(movements)
+        .innerJoin(personnel, eq(movements.personnelId, personnel.id))
+        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .orderBy(sql`${movements.dateFrom} DESC`)
+        .all()
+
+      // Build position/subdivision maps for enrichment
+      const positionRows = db.select().from(positions).all()
+      const posMap = new Map(positionRows.map((p) => [p.positionIndex, p.title]))
+
+      const subRows = db.select().from(subdivisions).all()
+      const subCodeMap = new Map(subRows.map((s) => [s.code, s.name]))
+
+      // Enrich and filter
+      let result = allMovements.map((row) => ({
+        ...row,
+        positionTitle: row.positionIndex ? (posMap.get(row.positionIndex) ?? null) : null,
+        previousPositionTitle: row.previousPosition ? (posMap.get(row.previousPosition) ?? null) : null,
+        subdivisionCode: row.currentSubdivision ?? null,
+        subdivisionName: row.currentSubdivision ? (subCodeMap.get(row.currentSubdivision) ?? null) : null
+      }))
+
+      // Apply filters
+      if (filters?.personnelId) {
+        result = result.filter((m) => m.personnelId === filters.personnelId)
+      }
+
+      if (filters?.orderType) {
+        result = result.filter((m) => m.orderType === filters.orderType)
+      }
+
+      if (filters?.subdivision) {
+        result = result.filter((m) => m.subdivisionCode === filters.subdivision)
+      }
+
+      if (filters?.dateFrom) {
+        result = result.filter((m) => m.dateFrom >= filters.dateFrom!)
+      }
+
+      if (filters?.dateTo) {
+        result = result.filter((m) => m.dateFrom <= filters.dateTo!)
+      }
+
+      if (filters?.isActive !== undefined) {
+        result = result.filter((m) => m.isActive === filters.isActive)
+      }
+
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        result = result.filter(
+          (m) =>
+            m.fullName.toLowerCase().includes(q) ||
+            m.ipn.includes(q) ||
+            (m.orderNumber && m.orderNumber.toLowerCase().includes(q)) ||
+            (m.positionTitle && m.positionTitle.toLowerCase().includes(q))
+        )
+      }
+
+      return result
+    }
+  )
+
+  // Movements create
+  ipcMain.handle(IPC.MOVEMENTS_CREATE, (_event, data: Record<string, unknown>) => {
+    console.log('[ipc] MOVEMENTS_CREATE data:', JSON.stringify(data))
+
+    const parsed = movementCreateSchema.safeParse(data)
+    if (!parsed.success) {
+      console.log('[ipc] MOVEMENTS_CREATE validation failed:', parsed.error.issues)
+      return { error: true, issues: parsed.error.issues }
+    }
+
+    try {
+      const db = getDatabase()
+      const input = parsed.data
+
+      // Clean empty strings to null
+      const cleaned: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(input)) {
+        cleaned[key] = value === '' ? null : value
+      }
+
+      // Transaction: deactivate old movements → insert new → update personnel
+      const result = db.transaction(() => {
+        // Deactivate previous active movements for this person
+        db.update(movements)
+          .set({ isActive: false })
+          .where(and(eq(movements.personnelId, input.personnelId), eq(movements.isActive, true)))
+          .run()
+
+        // Insert new movement
+        const newMovement = db
+          .insert(movements)
+          .values(cleaned as typeof movements.$inferInsert)
+          .returning()
+          .get()
+
+        // Update personnel current position and subdivision if positionIndex provided
+        const personnelUpdates: Record<string, unknown> = {
+          updatedAt: sql`datetime('now')`
+        }
+
+        if (input.positionIndex) {
+          personnelUpdates.currentPositionIdx = input.positionIndex
+
+          // Find subdivision for this position
+          const pos = db
+            .select()
+            .from(positions)
+            .where(eq(positions.positionIndex, input.positionIndex))
+            .get()
+          if (pos) {
+            const sub = db
+              .select()
+              .from(subdivisions)
+              .where(eq(subdivisions.id, pos.subdivisionId))
+              .get()
+            if (sub) {
+              personnelUpdates.currentSubdivision = sub.code
+            }
+          }
+        }
+
+        db.update(personnel)
+          .set(personnelUpdates as Partial<typeof personnel.$inferInsert>)
+          .where(eq(personnel.id, input.personnelId))
+          .run()
+
+        // Audit log
+        db.insert(auditLog)
+          .values({
+            tableName: 'movements',
+            recordId: newMovement.id,
+            action: 'create',
+            newValues: JSON.stringify(cleaned)
+          })
+          .run()
+
+        return newMovement
+      })
+
+      console.log('[ipc] MOVEMENTS_CREATE success:', result.id)
+      return result
+    } catch (err) {
+      console.error('[ipc] MOVEMENTS_CREATE error:', err)
+      return { error: true, issues: [{ message: String(err) }] }
+    }
+  })
+
+  // Movements get by person
+  ipcMain.handle(IPC.MOVEMENTS_GET_BY_PERSON, (_event, personnelId: number) => {
+    const db = getDatabase()
+
+    const rows = db
+      .select()
+      .from(movements)
+      .where(eq(movements.personnelId, personnelId))
+      .orderBy(sql`${movements.dateFrom} DESC`)
+      .all()
+
+    // Enrich with position titles
+    const positionRows = db.select().from(positions).all()
+    const posMap = new Map(positionRows.map((p) => [p.positionIndex, p.title]))
+
+    return rows.map((row) => ({
+      ...row,
+      positionTitle: row.positionIndex ? (posMap.get(row.positionIndex) ?? null) : null,
+      previousPositionTitle: row.previousPosition ? (posMap.get(row.previousPosition) ?? null) : null
+    }))
+  })
+
+  // ==================== STATUS HISTORY ====================
+
+  // Status history list with filters
+  ipcMain.handle(
+    IPC.STATUS_HISTORY_LIST,
+    (
+      _event,
+      filters?: {
+        search?: string
+        statusCode?: string
+        groupName?: string
+        dateFrom?: string
+        dateTo?: string
+        personnelId?: number
+      }
+    ) => {
+      const db = getDatabase()
+
+      // Get all status history with personnel info
+      const allRows = db
+        .select({
+          id: statusHistory.id,
+          personnelId: statusHistory.personnelId,
+          statusCode: statusHistory.statusCode,
+          presenceGroup: statusHistory.presenceGroup,
+          dateFrom: statusHistory.dateFrom,
+          dateTo: statusHistory.dateTo,
+          comment: statusHistory.comment,
+          isActive: statusHistory.isActive,
+          isLast: statusHistory.isLast,
+          createdAt: statusHistory.createdAt,
+          fullName: personnel.fullName,
+          rankName: ranks.name,
+          ipn: personnel.ipn
+        })
+        .from(statusHistory)
+        .innerJoin(personnel, eq(statusHistory.personnelId, personnel.id))
+        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .orderBy(sql`${statusHistory.dateFrom} DESC`)
+        .all()
+
+      // Build status_types lookup
+      const stRows = db.select().from(statusTypes).all()
+      const stMap = new Map(stRows.map((s) => [s.code, s]))
+
+      // Enrich with status name/color/group
+      let result = allRows.map((row) => {
+        const st = stMap.get(row.statusCode)
+        return {
+          ...row,
+          statusName: st?.name ?? row.statusCode,
+          statusColor: st?.colorCode ?? null,
+          groupName: st?.groupName ?? ''
+        }
+      })
+
+      // Apply filters
+      if (filters?.personnelId) {
+        result = result.filter((r) => r.personnelId === filters.personnelId)
+      }
+
+      if (filters?.statusCode) {
+        result = result.filter((r) => r.statusCode === filters.statusCode)
+      }
+
+      if (filters?.groupName) {
+        result = result.filter((r) => r.groupName === filters.groupName)
+      }
+
+      if (filters?.dateFrom) {
+        result = result.filter((r) => r.dateFrom >= filters.dateFrom!)
+      }
+
+      if (filters?.dateTo) {
+        result = result.filter((r) => r.dateFrom <= filters.dateTo!)
+      }
+
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        result = result.filter(
+          (r) =>
+            r.fullName.toLowerCase().includes(q) ||
+            r.ipn.includes(q) ||
+            r.statusName.toLowerCase().includes(q) ||
+            (r.comment && r.comment.toLowerCase().includes(q))
+        )
+      }
+
+      return result
+    }
+  )
+
+  // Status history create
+  ipcMain.handle(IPC.STATUS_HISTORY_CREATE, (_event, data: Record<string, unknown>) => {
+    console.log('[ipc] STATUS_HISTORY_CREATE data:', JSON.stringify(data))
+
+    const parsed = statusHistoryCreateSchema.safeParse(data)
+    if (!parsed.success) {
+      console.log('[ipc] STATUS_HISTORY_CREATE validation failed:', parsed.error.issues)
+      return { error: true, issues: parsed.error.issues }
+    }
+
+    try {
+      const db = getDatabase()
+      const input = parsed.data
+
+      // Clean empty strings to null
+      const cleaned: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(input)) {
+        cleaned[key] = value === '' ? null : value
+      }
+
+      // Transaction: set isLast=false on old → insert new isLast=true → update personnel.currentStatusCode
+      const result = db.transaction(() => {
+        // Set isLast=false on previous "last" status records for this person
+        db.update(statusHistory)
+          .set({ isLast: false })
+          .where(and(eq(statusHistory.personnelId, input.personnelId), eq(statusHistory.isLast, true)))
+          .run()
+
+        // Insert new status history record
+        const newRecord = db
+          .insert(statusHistory)
+          .values(cleaned as typeof statusHistory.$inferInsert)
+          .returning()
+          .get()
+
+        // Update personnel.currentStatusCode
+        db.update(personnel)
+          .set({
+            currentStatusCode: input.statusCode,
+            updatedAt: sql`datetime('now')`
+          } as Partial<typeof personnel.$inferInsert>)
+          .where(eq(personnel.id, input.personnelId))
+          .run()
+
+        // Audit log
+        db.insert(auditLog)
+          .values({
+            tableName: 'status_history',
+            recordId: newRecord.id,
+            action: 'create',
+            newValues: JSON.stringify(cleaned)
+          })
+          .run()
+
+        return newRecord
+      })
+
+      console.log('[ipc] STATUS_HISTORY_CREATE success:', result.id)
+      return result
+    } catch (err) {
+      console.error('[ipc] STATUS_HISTORY_CREATE error:', err)
+      return { error: true, issues: [{ message: String(err) }] }
+    }
+  })
+
+  // Status history get by person
+  ipcMain.handle(IPC.STATUS_HISTORY_GET_BY_PERSON, (_event, personnelId: number) => {
+    const db = getDatabase()
+
+    const rows = db
+      .select()
+      .from(statusHistory)
+      .where(eq(statusHistory.personnelId, personnelId))
+      .orderBy(sql`${statusHistory.dateFrom} DESC`)
+      .all()
+
+    // Enrich with status name/color/group
+    const stRows = db.select().from(statusTypes).all()
+    const stMap = new Map(stRows.map((s) => [s.code, s]))
+
+    return rows.map((row) => {
+      const st = stMap.get(row.statusCode)
+      return {
+        ...row,
+        statusName: st?.name ?? row.statusCode,
+        statusColor: st?.colorCode ?? null,
+        groupName: st?.groupName ?? ''
+      }
+    })
+  })
+
+  // ==================== ATTENDANCE ====================
+
+  // Get month attendance grid
+  ipcMain.handle(
+    IPC.ATTENDANCE_GET_MONTH,
+    (_event, year: number, month: number, subdivisionCode?: string) => {
+      const db = getDatabase()
+
+      // Build conditions for active personnel
+      const conditions: ReturnType<typeof eq>[] = [eq(personnel.status, 'active')]
+      if (subdivisionCode) {
+        conditions.push(eq(personnel.currentSubdivision, subdivisionCode))
+      }
+
+      // Get active personnel with rank
+      const personnelRows = db
+        .select({
+          id: personnel.id,
+          fullName: personnel.fullName,
+          rankName: ranks.name,
+          currentSubdivision: personnel.currentSubdivision
+        })
+        .from(personnel)
+        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .where(and(...conditions))
+        .orderBy(asc(personnel.fullName))
+        .all()
+
+      // Date range for the month
+      const firstDay = `${year}-${String(month).padStart(2, '0')}-01`
+      const lastDay = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`
+
+      // Get attendance records for the month
+      const attendanceRows = db
+        .select()
+        .from(attendance)
+        .where(
+          and(
+            sql`${attendance.date} >= ${firstDay}`,
+            sql`${attendance.date} <= ${lastDay}`
+          )
+        )
+        .all()
+
+      // Build lookup: personnelId → { date → statusCode }
+      const attMap = new Map<number, Record<string, string>>()
+      for (const a of attendanceRows) {
+        if (!attMap.has(a.personnelId)) {
+          attMap.set(a.personnelId, {})
+        }
+        attMap.get(a.personnelId)![a.date] = a.statusCode
+      }
+
+      // Build rows
+      const rows = personnelRows.map((p) => ({
+        personnelId: p.id,
+        fullName: p.fullName,
+        rankName: p.rankName,
+        subdivisionCode: p.currentSubdivision,
+        days: attMap.get(p.id) ?? {}
+      }))
+
+      return { year, month, rows }
+    }
+  )
+
+  // Set single day attendance
+  ipcMain.handle(
+    IPC.ATTENDANCE_SET_DAY,
+    (_event, personnelId: number, date: string, statusCode: string) => {
+      const db = getDatabase()
+
+      // Get presenceGroup from status_types
+      const st = db
+        .select({ groupName: statusTypes.groupName })
+        .from(statusTypes)
+        .where(eq(statusTypes.code, statusCode))
+        .get()
+
+      const presenceGroup = st?.groupName ?? null
+
+      // Check if record exists
+      const existing = db
+        .select()
+        .from(attendance)
+        .where(and(eq(attendance.personnelId, personnelId), eq(attendance.date, date)))
+        .get()
+
+      if (existing) {
+        db.update(attendance)
+          .set({ statusCode, presenceGroup })
+          .where(eq(attendance.id, existing.id))
+          .run()
+      } else {
+        db.insert(attendance)
+          .values({ personnelId, date, statusCode, presenceGroup })
+          .run()
+      }
+
+      // Audit log
+      db.insert(auditLog)
+        .values({
+          tableName: 'attendance',
+          recordId: personnelId,
+          action: existing ? 'update' : 'create',
+          newValues: JSON.stringify({ personnelId, date, statusCode, presenceGroup })
+        })
+        .run()
+
+      return { ok: true }
+    }
+  )
+
+  // Snapshot: fill attendance for all active personnel from their currentStatusCode
+  ipcMain.handle(IPC.ATTENDANCE_SNAPSHOT, (_event, date: string) => {
+    const db = getDatabase()
+
+    // Get all status_types for presenceGroup mapping
+    const stRows = db.select().from(statusTypes).all()
+    const stMap = new Map(stRows.map((s) => [s.code, s.groupName]))
+
+    const result = db.transaction(() => {
+      // Get all active personnel with currentStatusCode
+      const activePersonnel = db
+        .select({
+          id: personnel.id,
+          currentStatusCode: personnel.currentStatusCode
+        })
+        .from(personnel)
+        .where(eq(personnel.status, 'active'))
+        .all()
+
+      let created = 0
+
+      for (const p of activePersonnel) {
+        if (!p.currentStatusCode) continue
+
+        // Check if already exists — skip if so (INSERT OR IGNORE logic)
+        const existing = db
+          .select({ id: attendance.id })
+          .from(attendance)
+          .where(and(eq(attendance.personnelId, p.id), eq(attendance.date, date)))
+          .get()
+
+        if (existing) continue
+
+        const presenceGroup = stMap.get(p.currentStatusCode) ?? null
+
+        db.insert(attendance)
+          .values({
+            personnelId: p.id,
+            date,
+            statusCode: p.currentStatusCode,
+            presenceGroup
+          })
+          .run()
+
+        created++
+      }
+
+      return { created }
+    })
+
+    // Audit log
+    db.insert(auditLog)
+      .values({
+        tableName: 'attendance',
+        recordId: 0,
+        action: 'snapshot',
+        newValues: JSON.stringify({ date, created: result.created })
+      })
+      .run()
+
+    return result
+  })
+
+  // ==================== EXPORT ====================
+
+  ipcMain.handle(IPC.EXPORT_EJOOS, async () => {
+    try {
+      return await exportEjoos()
+    } catch (err) {
+      console.error('[ipc] EXPORT_EJOOS error:', err)
+      return { success: false, filePath: '', stats: { positionsCount: 0, personnelCount: 0, excludedCount: 0, movementsCount: 0, statusesCount: 0 }, errors: [String(err)] }
+    }
+  })
+
+  ipcMain.handle(IPC.EXPORT_CSV, async () => {
+    try {
+      return await exportCsv()
+    } catch (err) {
+      console.error('[ipc] EXPORT_CSV error:', err)
+      return { success: false, filePath: '', recordsCount: 0, errors: [String(err)] }
+    }
+  })
+
+  // ==================== DOCUMENTS ====================
+
+  // Seed default templates on first run
+  try {
+    seedDefaultTemplates()
+  } catch (err) {
+    console.error('[ipc] seedDefaultTemplates error:', err)
+  }
+
+  ipcMain.handle(IPC.TEMPLATES_LIST, () => {
+    try {
+      return listTemplates()
+    } catch (err) {
+      console.error('[ipc] TEMPLATES_LIST error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.TEMPLATES_GET_TAGS, (_event, templateId: number) => {
+    try {
+      return getTemplateTagsById(templateId)
+    } catch (err) {
+      console.error('[ipc] TEMPLATES_GET_TAGS error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.DOCUMENTS_GENERATE, (_event, request) => {
+    try {
+      return generateDocument(request)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_GENERATE error:', err)
+      return { error: true, message: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.DOCUMENTS_LIST, (_event, filters?) => {
+    try {
+      return listGeneratedDocuments(filters)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_LIST error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.DOCUMENTS_OPEN, async (_event, filePath: string) => {
+    try {
+      await openDocument(filePath)
+      return { success: true }
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_OPEN error:', err)
+      return { success: false, message: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.DOCUMENTS_DELETE, (_event, id: number) => {
+    try {
+      return deleteGeneratedDocument(id)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_DELETE error:', err)
+      return { success: false }
+    }
+  })
+
+  // ==================== STATISTICS ====================
+
+  ipcMain.handle(IPC.STATISTICS_SUMMARY, () => {
+    try {
+      const db = getDatabase()
+
+      // All personnel by status
+      const allPersonnel = db
+        .select({
+          id: personnel.id,
+          status: personnel.status,
+          currentStatusCode: personnel.currentStatusCode,
+          rankId: personnel.rankId
+        })
+        .from(personnel)
+        .all()
+
+      const active = allPersonnel.filter((p) => p.status === 'active')
+      const excluded = allPersonnel.filter((p) => p.status !== 'active')
+
+      // Status types lookup
+      const stRows = db.select().from(statusTypes).all()
+      const stMap = new Map(stRows.map((s) => [s.code, s]))
+
+      // Ranks lookup
+      const rankRows = db.select().from(ranks).all()
+      const rankMap = new Map(rankRows.map((r) => [r.id, r]))
+
+      // On/off supply
+      let onSupplyCount = 0
+      let offSupplyCount = 0
+      const groupCounts = new Map<string, { count: number; color: string | null }>()
+      const categoryCounts = new Map<string, number>()
+
+      for (const p of active) {
+        const st = p.currentStatusCode ? stMap.get(p.currentStatusCode) : null
+        if (st?.onSupply) {
+          onSupplyCount++
+        } else {
+          offSupplyCount++
+        }
+
+        // By group
+        const groupName = st?.groupName ?? 'Невизначено'
+        const existing = groupCounts.get(groupName)
+        if (existing) {
+          existing.count++
+        } else {
+          groupCounts.set(groupName, { count: 1, color: st?.colorCode ?? '#999' })
+        }
+
+        // By rank category
+        const rank = p.rankId ? rankMap.get(p.rankId) : null
+        const category = rank?.category ?? 'Невизначено'
+        categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
+      }
+
+      const byGroup = Array.from(groupCounts.entries()).map(([groupName, v]) => ({
+        groupName,
+        count: v.count,
+        color: v.color
+      }))
+
+      const byCategory = Array.from(categoryCounts.entries()).map(([category, count]) => ({
+        category,
+        count
+      }))
+
+      // Positions stats
+      const allPositions = db
+        .select({
+          id: positions.id,
+          isActive: positions.isActive,
+          positionIndex: positions.positionIndex
+        })
+        .from(positions)
+        .where(eq(positions.isActive, true))
+        .all()
+
+      // Find occupied positions from active personnel
+      const activePersonnel = db
+        .select({ currentPositionIdx: personnel.currentPositionIdx })
+        .from(personnel)
+        .where(eq(personnel.status, 'active'))
+        .all()
+      const occupiedIdxs = new Set(
+        activePersonnel.map((p) => p.currentPositionIdx).filter(Boolean)
+      )
+
+      const totalPositions = allPositions.length
+      const vacantPositions = allPositions.filter(
+        (p) => !occupiedIdxs.has(p.positionIndex)
+      ).length
+
+      return {
+        totalPersonnel: active.length,
+        excludedPersonnel: excluded.length,
+        onSupplyCount,
+        offSupplyCount,
+        byGroup,
+        byCategory,
+        totalPositions,
+        vacantPositions
+      }
+    } catch (err) {
+      console.error('[ipc] STATISTICS_SUMMARY error:', err)
+      return {
+        totalPersonnel: 0,
+        excludedPersonnel: 0,
+        onSupplyCount: 0,
+        offSupplyCount: 0,
+        byGroup: [],
+        byCategory: [],
+        totalPositions: 0,
+        vacantPositions: 0
+      }
+    }
+  })
+
+  ipcMain.handle(IPC.STATISTICS_BY_STATUS, () => {
+    try {
+      const db = getDatabase()
+
+      const active = db
+        .select({ currentStatusCode: personnel.currentStatusCode })
+        .from(personnel)
+        .where(eq(personnel.status, 'active'))
+        .all()
+
+      const stRows = db.select().from(statusTypes).all()
+      const stMap = new Map(stRows.map((s) => [s.code, s]))
+
+      const counts = new Map<string, number>()
+      for (const p of active) {
+        const code = p.currentStatusCode ?? 'UNKNOWN'
+        counts.set(code, (counts.get(code) ?? 0) + 1)
+      }
+
+      return Array.from(counts.entries()).map(([statusCode, count]) => {
+        const st = stMap.get(statusCode)
+        return {
+          statusCode,
+          statusName: st?.name ?? statusCode,
+          groupName: st?.groupName ?? '',
+          color: st?.colorCode ?? '#999',
+          count
+        }
+      }).sort((a, b) => b.count - a.count)
+    } catch (err) {
+      console.error('[ipc] STATISTICS_BY_STATUS error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.STATISTICS_BY_SUBDIVISION, () => {
+    try {
+      const db = getDatabase()
+
+      const active = db
+        .select({
+          currentSubdivision: personnel.currentSubdivision,
+          currentStatusCode: personnel.currentStatusCode
+        })
+        .from(personnel)
+        .where(eq(personnel.status, 'active'))
+        .all()
+
+      const stRows = db.select().from(statusTypes).all()
+      const stMap = new Map(stRows.map((s) => [s.code, s]))
+
+      const subRows = db.select().from(subdivisions).all()
+      const subMap = new Map(subRows.map((s) => [s.code, s.name]))
+
+      const grouped = new Map<string, { total: number; onSupply: number; offSupply: number }>()
+
+      for (const p of active) {
+        const code = p.currentSubdivision ?? 'UNKNOWN'
+        if (!grouped.has(code)) {
+          grouped.set(code, { total: 0, onSupply: 0, offSupply: 0 })
+        }
+        const g = grouped.get(code)!
+        g.total++
+
+        const st = p.currentStatusCode ? stMap.get(p.currentStatusCode) : null
+        if (st?.onSupply) {
+          g.onSupply++
+        } else {
+          g.offSupply++
+        }
+      }
+
+      return Array.from(grouped.entries()).map(([subdivisionCode, v]) => ({
+        subdivisionCode,
+        subdivisionName: subMap.get(subdivisionCode) ?? subdivisionCode,
+        total: v.total,
+        onSupply: v.onSupply,
+        offSupply: v.offSupply
+      })).sort((a, b) => b.total - a.total)
+    } catch (err) {
+      console.error('[ipc] STATISTICS_BY_SUBDIVISION error:', err)
+      return []
+    }
   })
 
   console.log('[ipc] Обробники зареєстровано')

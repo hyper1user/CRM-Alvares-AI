@@ -1,14 +1,29 @@
 @import "tailwindcss";
 
-body {
+html, body, #root {
   margin: 0;
   padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Ant Design ProLayout override */
-.ant-pro-layout .ant-pro-sider-menu-logo {
-  padding: 16px;
+/* Prevent layout shift during load */
+.ant-layout {
+  min-height: 100vh;
+}
+
+/* Smooth sidebar scrollbar */
+.ant-layout-sider ::-webkit-scrollbar {
+  width: 4px;
+}
+.ant-layout-sider ::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 2px;
 }

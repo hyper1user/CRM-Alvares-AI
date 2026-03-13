@@ -1,17 +1,135 @@
-import { Typography, Card } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import { Button, Space, Popconfirm, message, Input } from 'antd'
+import { EyeOutlined, UndoOutlined } from '@ant-design/icons'
+import { ProTable, type ProColumns } from '@ant-design/pro-components'
+import type { PersonnelListItem } from '@shared/types/personnel'
+import RankBadge from '../components/personnel/RankBadge'
+import { usePersonnelList } from '../hooks/usePersonnel'
+import { useState, useMemo } from 'react'
 
-const { Title, Paragraph } = Typography
+export default function ExcludedPersonnel() {
+  const navigate = useNavigate()
+  const [search, setSearch] = useState('')
 
-export default function ExcludedPersonnel(): JSX.Element {
+  const filters = useMemo(
+    () => ({
+      search: search || undefined,
+      status: 'excluded'
+    }),
+    [search]
+  )
+
+  const { data, loading, refetch } = usePersonnelList(filters)
+
+  const handleRestore = async (id: number) => {
+    await window.api.personnelUpdate(id, { status: 'active' })
+    message.success('Особу відновлено')
+    refetch()
+  }
+
+  const columns: ProColumns<PersonnelListItem>[] = [
+    {
+      title: '№',
+      dataIndex: 'index',
+      valueType: 'indexBorder',
+      width: 48
+    },
+    {
+      title: 'ПІБ',
+      dataIndex: 'fullName',
+      ellipsis: true,
+      width: 220,
+      render: (_, record) => (
+        <a onClick={() => navigate(`/personnel/${record.id}`)}>{record.fullName}</a>
+      )
+    },
+    {
+      title: 'Звання',
+      dataIndex: 'rankName',
+      width: 150,
+      render: (_, record) => (
+        <RankBadge rankName={record.rankName} category={record.rankCategory} />
+      )
+    },
+    {
+      title: 'Підрозділ',
+      dataIndex: 'currentSubdivision',
+      width: 120
+    },
+    {
+      title: 'Посада',
+      dataIndex: 'positionTitle',
+      ellipsis: true,
+      width: 180,
+      render: (_, record) => record.positionTitle || record.currentPositionIdx || '—'
+    },
+    {
+      title: 'Позивний',
+      dataIndex: 'callsign',
+      width: 100
+    },
+    {
+      title: 'Телефон',
+      dataIndex: 'phone',
+      width: 140
+    },
+    {
+      title: 'ІПН',
+      dataIndex: 'ipn',
+      width: 120
+    },
+    {
+      title: 'Дії',
+      key: 'actions',
+      width: 100,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => navigate(`/personnel/${record.id}`)}
+          />
+          <Popconfirm
+            title="Відновити особу?"
+            description="Запис буде повернено до активного складу"
+            onConfirm={() => handleRestore(record.id)}
+            okText="Так"
+            cancelText="Ні"
+          >
+            <Button type="link" size="small" icon={<UndoOutlined />} />
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ]
+
   return (
-    <Card>
-      <Title level={3}>
-        <DeleteOutlined /> Виключені
-      </Title>
-      <Paragraph type="secondary">
-        Список виключених з особового складу військовослужбовців з причинами та датами виключення. Буде реалізовано у наступних тижнях.
-      </Paragraph>
-    </Card>
+    <ProTable<PersonnelListItem>
+      rowKey="id"
+      columns={columns}
+      dataSource={data}
+      loading={loading}
+      search={false}
+      dateFormatter="string"
+      scroll={{ x: 1100 }}
+      pagination={{
+        defaultPageSize: 50,
+        showSizeChanger: true,
+        showTotal: (total) => `Всього: ${total}`
+      }}
+      headerTitle="Виключені з особового складу"
+      toolbar={{
+        search: (
+          <Input.Search
+            placeholder="Пошук за ПІБ, ІПН..."
+            allowClear
+            onSearch={(val) => setSearch(val)}
+            style={{ width: 300 }}
+          />
+        )
+      }}
+    />
   )
 }

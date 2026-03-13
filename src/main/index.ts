@@ -5,6 +5,9 @@ import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase } from './db/connection'
 import { registerIpcHandlers } from './ipc'
 
+// Fix flickering on Windows — disable GPU acceleration if problematic
+app.commandLine.appendSwitch('disable-gpu-compositing')
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -14,6 +17,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'ЕЖООС+ — Облік особового складу',
+    backgroundColor: '#ffffff',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -21,8 +25,9 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  // Show only after DOM is fully painted to avoid white flash
+  mainWindow.webContents.on('did-finish-load', () => {
+    setTimeout(() => mainWindow.show(), 100)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

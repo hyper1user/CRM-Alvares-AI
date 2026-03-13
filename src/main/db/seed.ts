@@ -3,6 +3,7 @@ import {
   ranks,
   statusTypes,
   subdivisions,
+  positions,
   bloodTypes,
   contractTypes,
   educationLevels,
@@ -24,9 +25,10 @@ import {
   EXCLUSION_REASONS,
   ABSENCE_REASONS,
   LOSS_TYPES,
-  SUBDIVISIONS
+  SUBDIVISIONS,
+  SEED_POSITIONS
 } from '@shared/enums/categories'
-import { sql } from 'drizzle-orm'
+import { sql, eq } from 'drizzle-orm'
 
 export function seedDatabase(db: BetterSQLite3Database): void {
   // Перевіряємо чи БД вже заповнена
@@ -66,7 +68,8 @@ export function seedDatabase(db: BetterSQLite3Database): void {
   }
   console.log(`[seed] status_types: ${STATUS_TYPES.length} записів`)
 
-  // Підрозділи (21 запис)
+  // Підрозділи (21 запис) з ієрархією
+  // First pass: insert all subdivisions
   for (const sub of SUBDIVISIONS) {
     db.insert(subdivisions)
       .values({
@@ -79,7 +82,21 @@ export function seedDatabase(db: BetterSQLite3Database): void {
       })
       .run()
   }
-  console.log(`[seed] subdivisions: ${SUBDIVISIONS.length} записів`)
+  // Second pass: set parentId based on parentCode
+  const allSubs = db.select().from(subdivisions).all()
+  const codeToId = new Map(allSubs.map((s) => [s.code, s.id]))
+  for (const sub of SUBDIVISIONS) {
+    if (sub.parentCode) {
+      const parentId = codeToId.get(sub.parentCode)
+      if (parentId) {
+        db.update(subdivisions)
+          .set({ parentId })
+          .where(eq(subdivisions.code, sub.code))
+          .run()
+      }
+    }
+  }
+  console.log(`[seed] subdivisions: ${SUBDIVISIONS.length} записів (з ієрархією)`)
 
   // Групи крові (9 записів)
   for (const bt of BLOOD_TYPES) {
@@ -130,6 +147,23 @@ export function seedDatabase(db: BetterSQLite3Database): void {
     db.insert(lossTypes).values({ name: lt }).run()
   }
   console.log(`[seed] loss_types: ${LOSS_TYPES.length} записів`)
+
+  // Посади (seed key positions)
+  for (const pos of SEED_POSITIONS) {
+    const subId = codeToId.get(pos.subdivisionCode)
+    if (subId) {
+      db.insert(positions)
+        .values({
+          positionIndex: pos.positionIndex,
+          subdivisionId: subId,
+          title: pos.title,
+          rankRequired: pos.rankRequired ?? null,
+          isActive: true
+        })
+        .run()
+    }
+  }
+  console.log(`[seed] positions: ${SEED_POSITIONS.length} записів`)
 
   // Налаштування
   const defaultSettings = {

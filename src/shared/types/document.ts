@@ -37,3 +37,24 @@ export interface GeneratedDocument {
   filePath: string
   generatedAt: string
 }
+
+export interface GenerateDocumentRequest {
+  templateId: number
+  title: string
+  personnelIds?: number[]
+  fields: Record<string, string>
+}
+
+export interface TemplateInfo {
+  template: DocumentTemplate
+  tags: string[]
+}
+
+export interface GeneratedDocumentListItem extends GeneratedDocument {
+  templateName?: string
+}
+
+export interface DocumentListFilters {
+  documentType?: string
+  search?: string
+}

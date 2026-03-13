@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: electron-app
+appId: com.12oshr.ejoos-plus
+productName: ЕЖООС+
 directories:
   buildResources: build
 files:
@@ -12,34 +12,13 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: electron-app
+  executableName: ejoos-plus
+  icon: build/icon.ico
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
+  artifactName: EJOOS-Plus-${version}-setup.${ext}
+  shortcutName: ЕЖООС+
+  uninstallDisplayName: ЕЖООС+
   createDesktopShortcut: always
-mac:
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
-  target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
-  category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/

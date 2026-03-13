@@ -24,8 +24,8 @@ export default function AppRoutes(): JSX.Element {
     <Routes>
       <Route path="/" element={<Dashboard />} />
       <Route path="/personnel" element={<PersonnelRegistry />} />
-      <Route path="/personnel/:id" element={<PersonnelCard />} />
       <Route path="/personnel/excluded" element={<ExcludedPersonnel />} />
+      <Route path="/personnel/:id" element={<PersonnelCard />} />
       <Route path="/org-structure" element={<OrgStructure />} />
       <Route path="/staffing" element={<StaffingTable />} />
       <Route path="/positions" element={<PositionRegistry />} />

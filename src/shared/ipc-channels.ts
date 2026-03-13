@@ -24,6 +24,7 @@ export const IPC = {
   // Subdivisions
   SUBDIVISIONS_LIST: 'subdivisions:list',
   SUBDIVISIONS_TREE: 'subdivisions:tree',
+  SUBDIVISIONS_UPDATE: 'subdivisions:update',
 
   // Movements
   MOVEMENTS_LIST: 'movements:list',
@@ -41,8 +42,12 @@ export const IPC = {
   ATTENDANCE_SNAPSHOT: 'attendance:snapshot',
 
   // Documents
+  TEMPLATES_LIST: 'templates:list',
+  TEMPLATES_GET_TAGS: 'templates:get-tags',
   DOCUMENTS_GENERATE: 'documents:generate',
   DOCUMENTS_LIST: 'documents:list',
+  DOCUMENTS_OPEN: 'documents:open',
+  DOCUMENTS_DELETE: 'documents:delete',
 
   // Orders
   ORDERS_LIST: 'orders:list',
@@ -68,7 +73,9 @@ export const IPC = {
   EDUCATION_LEVELS_LIST: 'education-levels:list',
 
   // Import/Export
-  IMPORT_EJOOS: 'import:ejoos',
+  OPEN_FILE_DIALOG: 'dialog:open-file',
+  IMPORT_EJOOS_PREVIEW: 'import:ejoos-preview',
+  IMPORT_EJOOS_CONFIRM: 'import:ejoos-confirm',
   IMPORT_DATA: 'import:data',
   EXPORT_EJOOS: 'export:ejoos',
   EXPORT_CSV: 'export:csv',
