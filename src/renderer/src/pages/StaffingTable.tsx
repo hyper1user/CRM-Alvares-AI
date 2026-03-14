@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
-import { Card, Table, Tag, Space, Select, Progress, Typography } from 'antd'
+import { useMemo } from 'react'
+import { Card, Table, Tag, Space, Progress, Typography } from 'antd'
 import { FileTextOutlined, TeamOutlined } from '@ant-design/icons'
 import { usePositionList } from '../hooks/usePositions'
 import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import type { PositionListItem } from '@shared/types/position'
 
 const { Title, Text } = Typography
@@ -19,10 +20,16 @@ interface SubdivisionGroup {
 }
 
 export default function StaffingTable(): JSX.Element {
-  const [subdivisionFilter, setSubdivisionFilter] = useState<number | undefined>()
   const { subdivisions } = useLookups()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
+
+  const globalSubdivisionId = useMemo(() => {
+    if (!globalSubdivision) return undefined
+    return subdivisions.find((s) => s.code === globalSubdivision)?.id
+  }, [globalSubdivision, subdivisions])
+
   const { data, loading } = usePositionList({
-    subdivisionId: subdivisionFilter
+    subdivisionId: globalSubdivisionId
   })
 
   // Group positions by subdivision
@@ -64,10 +71,6 @@ export default function StaffingTable(): JSX.Element {
   const totalVacant = groups.reduce((s, g) => s + g.vacantCount, 0)
   const totalPercent = totalStaff > 0 ? Math.round((totalFilled / totalStaff) * 100) : 0
 
-  const subdivisionOptions = useMemo(
-    () => subdivisions.map((s) => ({ label: `${s.code} — ${s.name}`, value: s.id })),
-    [subdivisions]
-  )
 
   const positionColumns = [
     {
@@ -125,15 +128,6 @@ export default function StaffingTable(): JSX.Element {
               Штатно-посадовий облік
             </Title>
           </Space>
-          <Select
-            placeholder="Фільтр по підрозділу"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            options={subdivisionOptions}
-            style={{ width: 250 }}
-            onChange={(val) => setSubdivisionFilter(val)}
-          />
         </Space>
       </Card>
 
@@ -206,11 +200,6 @@ export default function StaffingTable(): JSX.Element {
         </Card>
       )}
 
-      <style>{`
-        .row-vacant { background-color: #fffbe6 !important; }
-        .row-vacant:hover > td { background-color: #fff7cc !important; }
-        .row-deactivated { text-decoration: line-through; opacity: 0.6; }
-      `}</style>
     </div>
   )
 }

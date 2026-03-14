@@ -5,7 +5,16 @@ html, body, #root {
   padding: 0;
   height: 100%;
   overflow: hidden;
+}
+
+html[data-theme="light"], html[data-theme="light"] body {
   background: #ffffff;
+  color-scheme: light;
+}
+
+html[data-theme="dark"], html[data-theme="dark"] body {
+  background: #141414;
+  color-scheme: dark;
 }
 
 body {
@@ -23,7 +32,23 @@ body {
 .ant-layout-sider ::-webkit-scrollbar {
   width: 4px;
 }
-.ant-layout-sider ::-webkit-scrollbar-thumb {
+html[data-theme="light"] .ant-layout-sider ::-webkit-scrollbar-thumb {
   background: #d9d9d9;
   border-radius: 2px;
 }
+html[data-theme="dark"] .ant-layout-sider ::-webkit-scrollbar-thumb {
+  background: #434343;
+  border-radius: 2px;
+}
+
+/* Row styles — light */
+html[data-theme="light"] .row-vacant { background-color: #fffbe6 !important; }
+html[data-theme="light"] .row-vacant:hover > td,
+html[data-theme="light"] .row-vacant:hover td { background-color: #fff7cc !important; }
+
+/* Row styles — dark */
+html[data-theme="dark"] .row-vacant { background-color: #2b2611 !important; }
+html[data-theme="dark"] .row-vacant:hover > td,
+html[data-theme="dark"] .row-vacant:hover td { background-color: #3d3518 !important; }
+
+.row-deactivated { text-decoration: line-through; opacity: 0.6; }

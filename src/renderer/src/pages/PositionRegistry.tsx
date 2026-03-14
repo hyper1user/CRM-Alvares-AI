@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { Button, Space, Tag, Segmented, Input, Select, Popconfirm, message } from 'antd'
+import { Button, Space, Tag, Segmented, Input, Popconfirm, message } from 'antd'
 import { PlusOutlined, BankOutlined, EditOutlined } from '@ant-design/icons'
 import { ProTable, type ProColumns } from '@ant-design/pro-components'
 import { usePositionList } from '../hooks/usePositions'
 import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import PositionForm from '../components/positions/PositionForm'
 import type { PositionListItem } from '@shared/types/position'
 
@@ -12,21 +13,23 @@ type OccupancyFilter = 'all' | 'occupied' | 'vacant' | 'deactivated'
 export default function PositionRegistry(): JSX.Element {
   const [occupancy, setOccupancy] = useState<OccupancyFilter>('all')
   const [search, setSearch] = useState('')
-  const [subdivisionFilter, setSubdivisionFilter] = useState<number | undefined>()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<PositionListItem | null>(null)
 
   const { subdivisions } = useLookups()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
+
+  // Map global subdivision code → numeric id
+  const globalSubdivisionId = useMemo(() => {
+    if (!globalSubdivision) return undefined
+    return subdivisions.find((s) => s.code === globalSubdivision)?.id
+  }, [globalSubdivision, subdivisions])
+
   const { data, loading, refetch } = usePositionList({
     occupancy,
     search: search || undefined,
-    subdivisionId: subdivisionFilter
+    subdivisionId: globalSubdivisionId
   })
-
-  const subdivisionOptions = useMemo(
-    () => subdivisions.map((s) => ({ label: `${s.code} — ${s.name}`, value: s.id })),
-    [subdivisions]
-  )
 
   const handleEdit = (record: PositionListItem) => {
     setEditRecord(record)
@@ -174,16 +177,6 @@ export default function PositionRegistry(): JSX.Element {
               style={{ width: 200 }}
               onSearch={setSearch}
             />,
-            <Select
-              key="subdivision"
-              placeholder="Підрозділ"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              options={subdivisionOptions}
-              style={{ width: 200 }}
-              onChange={(val) => setSubdivisionFilter(val)}
-            />,
             <Segmented
               key="occupancy"
               value={occupancy}
@@ -209,11 +202,6 @@ export default function PositionRegistry(): JSX.Element {
         editRecord={editRecord}
       />
 
-      <style>{`
-        .row-vacant { background-color: #fffbe6 !important; }
-        .row-vacant:hover td { background-color: #fff7cc !important; }
-        .row-deactivated { text-decoration: line-through; opacity: 0.6; }
-      `}</style>
     </>
   )
 }

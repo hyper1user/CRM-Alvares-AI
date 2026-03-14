@@ -7,6 +7,7 @@ import type { ProColumns } from '@ant-design/pro-components'
 import dayjs from 'dayjs'
 import { useStatusHistoryList } from '../hooks/useStatusHistory'
 import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import StatusHistoryForm from '../components/statuses/StatusHistoryForm'
 import type { StatusHistoryListItem } from '@shared/types/statusHistory'
 
@@ -15,6 +16,7 @@ const { Title } = Typography
 
 export default function StatusBoard(): JSX.Element {
   const { statusTypes } = useLookups()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const [search, setSearch] = useState('')
   const [statusCodeFilter, setStatusCodeFilter] = useState<string | undefined>()
@@ -30,10 +32,11 @@ export default function StatusBoard(): JSX.Element {
       search: search || undefined,
       statusCode: statusCodeFilter,
       groupName: groupFilter,
+      subdivision: globalSubdivision,
       dateFrom: dateRange[0],
       dateTo: dateRange[1]
     }),
-    [search, statusCodeFilter, groupFilter, dateRange]
+    [search, statusCodeFilter, groupFilter, globalSubdivision, dateRange]
   )
 
   const { data, loading, refetch } = useStatusHistoryList(filters)

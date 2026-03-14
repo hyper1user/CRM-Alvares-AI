@@ -3,6 +3,7 @@ import { Card, DatePicker, Button, Space, Spin, Typography, message, Empty } fro
 import { LineChartOutlined, CameraOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import FormationSummary from '../components/attendance/FormationSummary'
 import type { FormationReportData, FormationGroup, FormationSubdivision } from '@shared/types/attendance'
 import type { AttendanceMonthData } from '@shared/types/attendance'
@@ -14,6 +15,7 @@ export default function FormationReport(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [monthData, setMonthData] = useState<AttendanceMonthData | null>(null)
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const { statusTypes, subdivisions } = useLookups()
 
@@ -21,7 +23,7 @@ export default function FormationReport(): JSX.Element {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const result = await window.api.attendanceGetMonth(date.year(), date.month() + 1)
+      const result = await window.api.attendanceGetMonth(date.year(), date.month() + 1, globalSubdivision)
       setMonthData(result)
     } catch (err) {
       message.error(`Помилка: ${err}`)
@@ -32,7 +34,7 @@ export default function FormationReport(): JSX.Element {
 
   useEffect(() => {
     fetchData()
-  }, [date.format('YYYY-MM-DD')])
+  }, [date.format('YYYY-MM-DD'), globalSubdivision])
 
   // Build formation report from attendance data for the selected date
   const reportData: FormationReportData | null = useMemo(() => {

@@ -998,12 +998,19 @@ export function registerIpcHandlers(): void {
         search?: string
         statusCode?: string
         groupName?: string
+        subdivision?: string
         dateFrom?: string
         dateTo?: string
         personnelId?: number
       }
     ) => {
       const db = getDatabase()
+
+      // Build WHERE conditions
+      const conditions = []
+      if (filters?.subdivision) {
+        conditions.push(eq(personnel.currentSubdivision, filters.subdivision))
+      }
 
       // Get all status history with personnel info
       const allRows = db
@@ -1025,6 +1032,7 @@ export function registerIpcHandlers(): void {
         .from(statusHistory)
         .innerJoin(personnel, eq(statusHistory.personnelId, personnel.id))
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(sql`${statusHistory.dateFrom} DESC`)
         .all()
 
@@ -1432,19 +1440,26 @@ export function registerIpcHandlers(): void {
 
   // ==================== STATISTICS ====================
 
-  ipcMain.handle(IPC.STATISTICS_SUMMARY, () => {
+  ipcMain.handle(IPC.STATISTICS_SUMMARY, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
       // All personnel by status
+      const conditions = [sql`1=1`]
+      if (subdivision) {
+        conditions.push(eq(personnel.currentSubdivision, subdivision))
+      }
+
       const allPersonnel = db
         .select({
           id: personnel.id,
           status: personnel.status,
           currentStatusCode: personnel.currentStatusCode,
+          currentPositionIdx: personnel.currentPositionIdx,
           rankId: personnel.rankId
         })
         .from(personnel)
+        .where(and(...conditions))
         .all()
 
       const active = allPersonnel.filter((p) => p.status === 'active')
@@ -1499,6 +1514,14 @@ export function registerIpcHandlers(): void {
       }))
 
       // Positions stats
+      const posConditions = [eq(positions.isActive, true)]
+      if (subdivision) {
+        // Resolve subdivision code → id
+        const subRow = db.select().from(subdivisions).where(eq(subdivisions.code, subdivision)).get()
+        if (subRow) {
+          posConditions.push(eq(positions.subdivisionId, subRow.id))
+        }
+      }
       const allPositions = db
         .select({
           id: positions.id,
@@ -1506,23 +1529,11 @@ export function registerIpcHandlers(): void {
           positionIndex: positions.positionIndex
         })
         .from(positions)
-        .where(eq(positions.isActive, true))
+        .where(and(...posConditions))
         .all()
-
-      // Find occupied positions from active personnel
-      const activePersonnel = db
-        .select({ currentPositionIdx: personnel.currentPositionIdx })
-        .from(personnel)
-        .where(eq(personnel.status, 'active'))
-        .all()
-      const occupiedIdxs = new Set(
-        activePersonnel.map((p) => p.currentPositionIdx).filter(Boolean)
-      )
 
       const totalPositions = allPositions.length
-      const vacantPositions = allPositions.filter(
-        (p) => !occupiedIdxs.has(p.positionIndex)
-      ).length
+      const vacantPositions = totalPositions - active.filter((p) => p.currentPositionIdx).length
 
       return {
         totalPersonnel: active.length,
@@ -1549,14 +1560,18 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.STATISTICS_BY_STATUS, () => {
+  ipcMain.handle(IPC.STATISTICS_BY_STATUS, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
+      const conditions = [eq(personnel.status, 'active')]
+      if (subdivision) {
+        conditions.push(eq(personnel.currentSubdivision, subdivision))
+      }
       const active = db
         .select({ currentStatusCode: personnel.currentStatusCode })
         .from(personnel)
-        .where(eq(personnel.status, 'active'))
+        .where(and(...conditions))
         .all()
 
       const stRows = db.select().from(statusTypes).all()
@@ -1584,17 +1599,21 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.STATISTICS_BY_SUBDIVISION, () => {
+  ipcMain.handle(IPC.STATISTICS_BY_SUBDIVISION, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
+      const conditions = [eq(personnel.status, 'active')]
+      if (subdivision) {
+        conditions.push(eq(personnel.currentSubdivision, subdivision))
+      }
       const active = db
         .select({
           currentSubdivision: personnel.currentSubdivision,
           currentStatusCode: personnel.currentStatusCode
         })
         .from(personnel)
-        .where(eq(personnel.status, 'active'))
+        .where(and(...conditions))
         .all()
 
       const stRows = db.select().from(statusTypes).all()

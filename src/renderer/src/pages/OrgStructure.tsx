@@ -191,11 +191,6 @@ export default function OrgStructure(): JSX.Element {
         )}
       </div>
 
-      <style>{`
-        .row-vacant { background-color: #fffbe6 !important; }
-        .row-vacant:hover > td { background-color: #fff7cc !important; }
-        .row-deactivated { text-decoration: line-through; opacity: 0.6; }
-      `}</style>
     </div>
   )
 }

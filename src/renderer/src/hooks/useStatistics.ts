@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useAppStore } from '../stores/app.store'
 
 // --- Types ---
 
@@ -46,17 +47,18 @@ export function useStatisticsSummary() {
   const [data, setData] = useState<StatisticsSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
   const [trigger, setTrigger] = useState(0)
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const refetch = useCallback(() => setTrigger((t) => t + 1), [])
 
   useEffect(() => {
     setLoading(true)
     window.api
-      .statisticsSummary()
+      .statisticsSummary(globalSubdivision)
       .then((result: StatisticsSummary) => setData(result ?? emptySummary))
       .catch(() => setData(emptySummary))
       .finally(() => setLoading(false))
-  }, [trigger])
+  }, [trigger, globalSubdivision])
 
   return { data, loading, refetch }
 }
@@ -64,15 +66,16 @@ export function useStatisticsSummary() {
 export function useStatisticsByStatus() {
   const [data, setData] = useState<StatusStatItem[]>([])
   const [loading, setLoading] = useState(true)
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   useEffect(() => {
     setLoading(true)
     window.api
-      .statisticsByStatus()
+      .statisticsByStatus(globalSubdivision)
       .then((result: StatusStatItem[]) => setData(result ?? []))
       .catch(() => setData([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [globalSubdivision])
 
   return { data, loading }
 }
@@ -80,15 +83,16 @@ export function useStatisticsByStatus() {
 export function useStatisticsBySubdivision() {
   const [data, setData] = useState<SubdivisionStatItem[]>([])
   const [loading, setLoading] = useState(true)
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   useEffect(() => {
     setLoading(true)
     window.api
-      .statisticsBySubdivision()
+      .statisticsBySubdivision(globalSubdivision)
       .then((result: SubdivisionStatItem[]) => setData(result ?? []))
       .catch(() => setData([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [globalSubdivision])
 
   return { data, loading }
 }

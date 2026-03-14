@@ -6,7 +6,7 @@ import { ProTable } from '@ant-design/pro-components'
 import type { ProColumns } from '@ant-design/pro-components'
 import dayjs from 'dayjs'
 import { useMovementList } from '../hooks/useMovements'
-import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import MovementForm from '../components/movements/MovementForm'
 import type { MovementListItem } from '@shared/types/movement'
 import { MOVEMENT_ORDER_TYPES } from '@shared/enums/categories'
@@ -25,11 +25,10 @@ const ORDER_TYPE_COLORS: Record<string, string> = {
 }
 
 export default function Movements(): JSX.Element {
-  const { subdivisions } = useLookups()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const [search, setSearch] = useState('')
   const [orderTypeFilter, setOrderTypeFilter] = useState<string | undefined>()
-  const [subdivisionFilter, setSubdivisionFilter] = useState<string | undefined>()
   const [dateRange, setDateRange] = useState<[string | undefined, string | undefined]>([
     undefined,
     undefined
@@ -40,11 +39,11 @@ export default function Movements(): JSX.Element {
     () => ({
       search: search || undefined,
       orderType: orderTypeFilter,
-      subdivision: subdivisionFilter,
+      subdivision: globalSubdivision,
       dateFrom: dateRange[0],
       dateTo: dateRange[1]
     }),
-    [search, orderTypeFilter, subdivisionFilter, dateRange]
+    [search, orderTypeFilter, globalSubdivision, dateRange]
   )
 
   const { data, loading, refetch } = useMovementList(filters)
@@ -161,14 +160,6 @@ export default function Movements(): JSX.Element {
               value={orderTypeFilter}
               onChange={setOrderTypeFilter}
               options={MOVEMENT_ORDER_TYPES.map((t) => ({ value: t, label: t }))}
-            />
-            <Select
-              placeholder="Підрозділ"
-              allowClear
-              style={{ width: 180 }}
-              value={subdivisionFilter}
-              onChange={setSubdivisionFilter}
-              options={subdivisions.map((s) => ({ value: s.code, label: s.name }))}
             />
             <RangePicker
               format="DD.MM.YYYY"

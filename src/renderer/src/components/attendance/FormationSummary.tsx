@@ -1,4 +1,4 @@
-import { Table, Tag, Card, Row, Col, Statistic } from 'antd'
+import { Table, Tag, Card, Row, Col, Statistic, theme } from 'antd'
 import {
   TeamOutlined,
   CheckCircleOutlined,
@@ -11,6 +11,7 @@ interface FormationSummaryProps {
 }
 
 export default function FormationSummary({ data }: FormationSummaryProps): JSX.Element {
+  const { token } = theme.useToken()
   const totalPresent = data.groups
     .filter((g) => g.groupName === 'Так')
     .reduce((sum, g) => sum + g.count, 0)
@@ -141,7 +142,7 @@ export default function FormationSummary({ data }: FormationSummaryProps): JSX.E
                     fontWeight: 600,
                     marginBottom: 4,
                     padding: '4px 8px',
-                    background: '#fafafa',
+                    background: token.colorFillQuaternary,
                     borderRadius: 4
                   }}
                 >

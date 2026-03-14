@@ -9,6 +9,7 @@ import StatusBadge from '../components/personnel/StatusBadge'
 import PersonnelForm from '../components/personnel/PersonnelForm'
 import { useLookups } from '../hooks/useLookups'
 import { usePersonnelList } from '../hooks/usePersonnel'
+import { useAppStore } from '../stores/app.store'
 
 const CATEGORY_TABS = [
   { label: 'Всі', value: '' },
@@ -19,11 +20,11 @@ const CATEGORY_TABS = [
 
 export default function PersonnelRegistry() {
   const navigate = useNavigate()
-  const { statusTypes, subdivisions } = useLookups()
+  const { statusTypes } = useLookups()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
-  const [subdivision, setSubdivision] = useState<string | undefined>()
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<PersonnelListItem | null>(null)
@@ -32,11 +33,11 @@ export default function PersonnelRegistry() {
     () => ({
       search: search || undefined,
       category: category || undefined,
-      subdivision,
+      subdivision: globalSubdivision,
       statusCode: statusFilter,
       status: 'active'
     }),
-    [search, category, subdivision, statusFilter]
+    [search, category, globalSubdivision, statusFilter]
   )
 
   const { data, loading, refetch } = usePersonnelList(filters)
@@ -95,9 +96,7 @@ export default function PersonnelRegistry() {
     {
       title: 'Підрозділ',
       dataIndex: 'currentSubdivision',
-      width: 120,
-      filters: subdivisions.map((s) => ({ text: s.name, value: s.code })),
-      onFilter: (value, record) => record.currentSubdivision === value
+      width: 120
     },
     {
       title: 'Посада',

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Layout, Menu, Tag, Space, theme } from 'antd'
+import { useState, useEffect, useContext } from 'react'
+import { Layout, Menu, Tag, Space, Tooltip, Select, theme } from 'antd'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
@@ -24,8 +24,14 @@ import {
   FileProtectOutlined,
   DatabaseOutlined,
   MenuFoldOutlined,
-  MenuUnfoldOutlined
+  MenuUnfoldOutlined,
+  SunOutlined,
+  MoonOutlined,
+  AimOutlined
 } from '@ant-design/icons'
+import { ThemeContext } from '../../main'
+import { useAppStore } from '../../stores/app.store'
+import { useLookups } from '../../hooks/useLookups'
 import dayjs from 'dayjs'
 import AppRoutes from '../../routes'
 
@@ -125,6 +131,11 @@ export default function AppLayout(): JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
   const [dbStatus, setDbStatus] = useState<string>('')
   const { token } = theme.useToken()
+  const { mode, toggle: toggleTheme } = useContext(ThemeContext)
+  const isDark = mode === 'dark'
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
+  const setGlobalSubdivision = useAppStore((s) => s.setGlobalSubdivision)
+  const { subdivisions } = useLookups()
 
   useEffect(() => {
     window.api.dbHealth().then((result: { ok: boolean; message: string }) => {
@@ -145,7 +156,7 @@ export default function AppLayout(): JSX.Element {
         collapsed={collapsed}
         onCollapse={setCollapsed}
         width={230}
-        theme="light"
+        theme={isDark ? 'dark' : 'light'}
         style={{
           height: '100vh',
           position: 'fixed',
@@ -202,23 +213,50 @@ export default function AppLayout(): JSX.Element {
         >
           <div
             onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: 16, cursor: 'pointer', marginRight: 16, color: '#666' }}
+            style={{ fontSize: 16, cursor: 'pointer', marginRight: 16, color: token.colorTextSecondary }}
           >
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </div>
           <Space size={8}>
-            <Tag color="blue">12 ОШР</Tag>
-            <Tag color="green">4 ШБ (А0501)</Tag>
-            <Tag color="orange">92 ОШБр (А1314)</Tag>
+            <AimOutlined style={{ color: token.colorTextSecondary }} />
+            <Select
+              placeholder="Весь батальйон"
+              allowClear
+              showSearch
+              style={{ width: 220 }}
+              value={globalSubdivision}
+              onChange={setGlobalSubdivision}
+              filterOption={(input, option) =>
+                (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+              }
+              options={subdivisions.map((s) => ({
+                value: s.code,
+                label: `${s.code} — ${s.name}`
+              }))}
+            />
           </Space>
           <div style={{ flex: 1 }} />
           <Space size={8}>
-            <span style={{ color: '#666', fontSize: 13 }}>
+            <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
               {dayjs().format('DD.MM.YYYY dddd')}
             </span>
             {dbStatus && (
               <Tag color={dbStatus === 'OK' ? 'success' : 'error'}>БД: {dbStatus}</Tag>
             )}
+            <Tooltip title={isDark ? 'Світла тема' : 'Темна тема'}>
+              <div
+                onClick={toggleTheme}
+                style={{
+                  fontSize: 16,
+                  cursor: 'pointer',
+                  color: token.colorTextSecondary,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                {isDark ? <SunOutlined /> : <MoonOutlined />}
+              </div>
+            </Tooltip>
           </Space>
         </Header>
 

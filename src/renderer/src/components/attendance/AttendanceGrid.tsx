@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Table, Popover, Select, Tag, message } from 'antd'
+import { Table, Popover, Select, Tag, message, theme } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useLookups } from '../../hooks/useLookups'
 import type { PersonnelAttendanceRow } from '@shared/types/attendance'
@@ -17,6 +17,7 @@ export default function AttendanceGrid({
   rows,
   onRefetch
 }: AttendanceGridProps): JSX.Element {
+  const { token } = theme.useToken()
   const { statusTypes } = useLookups()
   const [saving, setSaving] = useState(false)
 
@@ -95,7 +96,7 @@ export default function AttendanceGrid({
         width: 38,
         align: 'center' as const,
         onHeaderCell: () => ({
-          style: isWeekend ? { background: '#fff7e6' } : {}
+          style: isWeekend ? { background: token.colorWarningBg } : {}
         }),
         render: (_: unknown, record: PersonnelAttendanceRow) => {
           const code = record.days[dateStr] ?? null
@@ -113,7 +114,7 @@ export default function AttendanceGrid({
             ...(st?.colorCode
               ? { background: st.colorCode + '33', color: st.colorCode }
               : isWeekend
-                ? { background: '#fffbe6' }
+                ? { background: token.colorWarningBg }
                 : {})
           }
 

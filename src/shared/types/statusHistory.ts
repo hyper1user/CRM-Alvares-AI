@@ -24,6 +24,7 @@ export interface StatusHistoryFilters {
   search?: string
   statusCode?: string
   groupName?: string
+  subdivision?: string
   dateFrom?: string
   dateTo?: string
   personnelId?: number

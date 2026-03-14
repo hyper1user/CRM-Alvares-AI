@@ -12,7 +12,8 @@ import {
   Divider,
   Table,
   Tag,
-  Badge
+  Badge,
+  theme
 } from 'antd'
 import { ArrowLeftOutlined, EditOutlined, UserOutlined, PlusOutlined } from '@ant-design/icons'
 import { usePersonnelCard } from '../hooks/usePersonnel'
@@ -35,7 +36,8 @@ function formatDate(d: string | null | undefined): string {
   return dayjs(d).format('DD.MM.YYYY')
 }
 
-export default function PersonnelCard() {
+export default function PersonnelCard(): JSX.Element {
+  const { token } = theme.useToken()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: person, loading, refetch } = usePersonnelCard(id ? Number(id) : null)
@@ -423,13 +425,13 @@ export default function PersonnelCard() {
                 width: 48,
                 height: 48,
                 borderRadius: '50%',
-                background: '#f0f0f0',
+                background: token.colorFillSecondary,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
             >
-              <UserOutlined style={{ fontSize: 24, color: '#999' }} />
+              <UserOutlined style={{ fontSize: 24, color: token.colorTextQuaternary }} />
             </div>
             <div>
               <Title level={4} style={{ margin: 0 }}>

@@ -1,22 +1,22 @@
 import { useState } from 'react'
-import { Card, DatePicker, Select, Button, Space, Spin, message, Typography } from 'antd'
+import { Card, DatePicker, Button, Space, Spin, message, Typography, theme } from 'antd'
 import { CalendarOutlined, CameraOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useMonthlyAttendance } from '../hooks/useAttendance'
-import { useLookups } from '../hooks/useLookups'
+import { useAppStore } from '../stores/app.store'
 import AttendanceGrid from '../components/attendance/AttendanceGrid'
 
 const { Title } = Typography
 
 export default function MonthlyAttendance(): JSX.Element {
+  const { token } = theme.useToken()
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
   const today = dayjs()
   const [year, setYear] = useState(today.year())
   const [month, setMonth] = useState(today.month() + 1)
-  const [subdivision, setSubdivision] = useState<string | undefined>(undefined)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
 
-  const { subdivisions } = useLookups()
-  const { data, loading, refetch } = useMonthlyAttendance(year, month, subdivision)
+  const { data, loading, refetch } = useMonthlyAttendance(year, month, globalSubdivision)
 
   const handleMonthChange = (value: dayjs.Dayjs | null) => {
     if (value) {
@@ -54,17 +54,6 @@ export default function MonthlyAttendance(): JSX.Element {
               allowClear={false}
               format="MMMM YYYY"
             />
-            <Select
-              style={{ width: 200 }}
-              placeholder="Всі підрозділи"
-              allowClear
-              value={subdivision}
-              onChange={setSubdivision}
-              options={subdivisions.map((s) => ({
-                label: `${s.code} — ${s.name}`,
-                value: s.code
-              }))}
-            />
             <Button
               type="primary"
               icon={<CameraOutlined />}
@@ -88,7 +77,7 @@ export default function MonthlyAttendance(): JSX.Element {
             onRefetch={refetch}
           />
         ) : (
-          <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>
+          <div style={{ textAlign: 'center', padding: 48, color: token.colorTextQuaternary }}>
             Немає даних. Натисніть &quot;Snapshot поточного дня&quot; для заповнення табелю
             з поточних статусів ОС.
           </div>

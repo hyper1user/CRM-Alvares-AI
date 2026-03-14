@@ -5,18 +5,21 @@ import { ProTable, type ProColumns } from '@ant-design/pro-components'
 import type { PersonnelListItem } from '@shared/types/personnel'
 import RankBadge from '../components/personnel/RankBadge'
 import { usePersonnelList } from '../hooks/usePersonnel'
+import { useAppStore } from '../stores/app.store'
 import { useState, useMemo } from 'react'
 
 export default function ExcludedPersonnel() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
   const filters = useMemo(
     () => ({
       search: search || undefined,
+      subdivision: globalSubdivision,
       status: 'excluded'
     }),
-    [search]
+    [search, globalSubdivision]
   )
 
   const { data, loading, refetch } = usePersonnelList(filters)

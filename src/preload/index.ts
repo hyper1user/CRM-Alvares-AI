@@ -73,6 +73,7 @@ const api = {
     search?: string
     statusCode?: string
     groupName?: string
+    subdivision?: string
     dateFrom?: string
     dateTo?: string
     personnelId?: number
@@ -116,9 +117,9 @@ const api = {
   documentsDelete: (id: number) => ipcRenderer.invoke(IPC.DOCUMENTS_DELETE, id),
 
   // Statistics
-  statisticsSummary: () => ipcRenderer.invoke(IPC.STATISTICS_SUMMARY),
-  statisticsByStatus: () => ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS),
-  statisticsBySubdivision: () => ipcRenderer.invoke(IPC.STATISTICS_BY_SUBDIVISION)
+  statisticsSummary: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_SUMMARY, subdivision),
+  statisticsByStatus: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS, subdivision),
+  statisticsBySubdivision: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_SUBDIVISION, subdivision)
 }
 
 export type ApiType = typeof api
