@@ -14,10 +14,14 @@ import {
   movements,
   statusHistory,
   attendance,
+  orders,
+  orderItems,
+  leaveRecords,
+  documentTemplates,
   auditLog
 } from '../db/schema'
-import { eq, and, like, or, asc, sql } from 'drizzle-orm'
-import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema } from '@shared/validators'
+import { eq, and, like, or, asc, desc, sql, gte, lte } from 'drizzle-orm'
+import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema } from '@shared/validators'
 import { parseEjoosFile } from '../import/ejoos-parser'
 import { parseDataFile } from '../import/data-parser'
 import { importEjoos, importData } from '../import/import-service'
@@ -1435,6 +1439,405 @@ export function registerIpcHandlers(): void {
     } catch (err) {
       console.error('[ipc] DOCUMENTS_DELETE error:', err)
       return { success: false }
+    }
+  })
+
+  // ==================== ORDERS ====================
+
+  ipcMain.handle(IPC.ORDERS_LIST, (_event, filters?: {
+    search?: string
+    orderType?: string
+    dateFrom?: string
+    dateTo?: string
+  }) => {
+    try {
+      const db = getDatabase()
+      const conditions = [sql`1=1`]
+
+      if (filters?.orderType) {
+        conditions.push(eq(orders.orderType, filters.orderType))
+      }
+      if (filters?.dateFrom) {
+        conditions.push(gte(orders.orderDate, filters.dateFrom))
+      }
+      if (filters?.dateTo) {
+        conditions.push(lte(orders.orderDate, filters.dateTo))
+      }
+
+      const rows = db
+        .select()
+        .from(orders)
+        .where(and(...conditions))
+        .orderBy(desc(orders.orderDate))
+        .all()
+
+      // Filter by search text in JS (search across multiple fields)
+      let result = rows
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        result = rows.filter(
+          (r) =>
+            r.orderNumber.toLowerCase().includes(q) ||
+            (r.subject ?? '').toLowerCase().includes(q) ||
+            (r.signedBy ?? '').toLowerCase().includes(q)
+        )
+      }
+
+      // Count items for each order
+      return result.map((row) => {
+        const items = db
+          .select()
+          .from(orderItems)
+          .where(eq(orderItems.orderId, row.id))
+          .all()
+        return { ...row, itemsCount: items.length }
+      })
+    } catch (err) {
+      console.error('[ipc] ORDERS_LIST error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.ORDERS_CREATE, (_event, data: Record<string, unknown>) => {
+    try {
+      const validated = orderCreateSchema.parse(data)
+      const db = getDatabase()
+
+      // Transaction: create order + items
+      const result = db.transaction(() => {
+        const orderResult = db
+          .insert(orders)
+          .values({
+            orderType: validated.orderType,
+            orderNumber: validated.orderNumber,
+            orderDate: validated.orderDate,
+            subject: validated.subject || null,
+            bodyText: validated.bodyText || null,
+            signedBy: validated.signedBy || null
+          })
+          .run()
+
+        const orderId = Number(orderResult.lastInsertRowid)
+
+        // Insert items
+        if (validated.items && validated.items.length > 0) {
+          for (let i = 0; i < validated.items.length; i++) {
+            const item = validated.items[i]
+            db.insert(orderItems)
+              .values({
+                orderId,
+                personnelId: item.personnelId ?? null,
+                actionType: item.actionType || null,
+                description: item.description || null,
+                sortOrder: item.sortOrder ?? i
+              })
+              .run()
+          }
+        }
+
+        // Audit
+        db.insert(auditLog)
+          .values({
+            tableName: 'orders',
+            recordId: orderId,
+            action: 'create',
+            newValues: JSON.stringify(validated)
+          })
+          .run()
+
+        return orderId
+      })
+
+      return { success: true, id: result }
+    } catch (err) {
+      console.error('[ipc] ORDERS_CREATE error:', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.ORDERS_GET, (_event, id: number) => {
+    try {
+      const db = getDatabase()
+      const order = db.select().from(orders).where(eq(orders.id, id)).get()
+      if (!order) return null
+
+      const items = db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, id))
+        .orderBy(asc(orderItems.sortOrder))
+        .all()
+
+      return { ...order, items }
+    } catch (err) {
+      console.error('[ipc] ORDERS_GET error:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle(IPC.ORDERS_DELETE, (_event, id: number) => {
+    try {
+      const db = getDatabase()
+
+      db.transaction(() => {
+        // Delete items first
+        db.delete(orderItems).where(eq(orderItems.orderId, id)).run()
+        // Delete order
+        db.delete(orders).where(eq(orders.id, id)).run()
+
+        db.insert(auditLog)
+          .values({
+            tableName: 'orders',
+            recordId: id,
+            action: 'delete',
+            oldValues: JSON.stringify({ id })
+          })
+          .run()
+      })
+
+      return { success: true }
+    } catch (err) {
+      console.error('[ipc] ORDERS_DELETE error:', err)
+      return { success: false }
+    }
+  })
+
+  // ==================== LEAVE RECORDS ====================
+
+  ipcMain.handle(IPC.LEAVE_LIST, (_event, filters?: {
+    search?: string
+    leaveType?: string
+    personnelId?: number
+    dateFrom?: string
+    dateTo?: string
+  }) => {
+    try {
+      const db = getDatabase()
+      const conditions = [sql`1=1`]
+
+      if (filters?.leaveType) {
+        conditions.push(eq(leaveRecords.leaveType, filters.leaveType))
+      }
+      if (filters?.personnelId) {
+        conditions.push(eq(leaveRecords.personnelId, filters.personnelId))
+      }
+      if (filters?.dateFrom) {
+        conditions.push(gte(leaveRecords.startDate, filters.dateFrom))
+      }
+      if (filters?.dateTo) {
+        conditions.push(lte(leaveRecords.endDate, filters.dateTo))
+      }
+
+      const rows = db
+        .select({
+          id: leaveRecords.id,
+          personnelId: leaveRecords.personnelId,
+          leaveType: leaveRecords.leaveType,
+          startDate: leaveRecords.startDate,
+          endDate: leaveRecords.endDate,
+          travelDays: leaveRecords.travelDays,
+          destination: leaveRecords.destination,
+          orderNumber: leaveRecords.orderNumber,
+          orderDate: leaveRecords.orderDate,
+          ticketNumber: leaveRecords.ticketNumber,
+          returnDate: leaveRecords.returnDate,
+          tccRegistration: leaveRecords.tccRegistration,
+          notes: leaveRecords.notes,
+          createdAt: leaveRecords.createdAt,
+          fullName: personnel.fullName,
+          rankId: personnel.rankId
+        })
+        .from(leaveRecords)
+        .innerJoin(personnel, eq(leaveRecords.personnelId, personnel.id))
+        .where(and(...conditions))
+        .orderBy(desc(leaveRecords.startDate))
+        .all()
+
+      // Resolve rank names
+      const rankRows = db.select().from(ranks).all()
+      const rankMap = new Map(rankRows.map((r) => [r.id, r.name]))
+
+      let result = rows.map((r) => ({
+        ...r,
+        rankName: r.rankId ? rankMap.get(r.rankId) ?? null : null
+      }))
+
+      // Search filter
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        result = result.filter(
+          (r) =>
+            r.fullName.toLowerCase().includes(q) ||
+            (r.destination ?? '').toLowerCase().includes(q) ||
+            (r.orderNumber ?? '').toLowerCase().includes(q)
+        )
+      }
+
+      return result
+    } catch (err) {
+      console.error('[ipc] LEAVE_LIST error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.LEAVE_CREATE, (_event, data: Record<string, unknown>) => {
+    try {
+      const validated = leaveRecordCreateSchema.parse(data)
+      const db = getDatabase()
+
+      const result = db
+        .insert(leaveRecords)
+        .values({
+          personnelId: validated.personnelId,
+          leaveType: validated.leaveType,
+          startDate: validated.startDate,
+          endDate: validated.endDate,
+          travelDays: validated.travelDays ?? 2,
+          destination: validated.destination || null,
+          orderNumber: validated.orderNumber || null,
+          orderDate: validated.orderDate || null,
+          ticketNumber: validated.ticketNumber || null,
+          notes: validated.notes || null
+        })
+        .run()
+
+      const leaveId = Number(result.lastInsertRowid)
+
+      // Set status to ВІДП if person is active
+      const person = db.select().from(personnel).where(eq(personnel.id, validated.personnelId)).get()
+      if (person && person.status === 'active') {
+        db.update(personnel)
+          .set({ currentStatusCode: 'ВІДП' })
+          .where(eq(personnel.id, validated.personnelId))
+          .run()
+
+        db.insert(statusHistory)
+          .values({
+            personnelId: validated.personnelId,
+            statusCode: 'ВІДП',
+            dateFrom: validated.startDate,
+            dateTo: validated.endDate,
+            comment: `Відпустка: ${validated.leaveType}`
+          })
+          .run()
+      }
+
+      db.insert(auditLog)
+        .values({
+          tableName: 'leave_records',
+          recordId: leaveId,
+          action: 'create',
+          newValues: JSON.stringify(validated)
+        })
+        .run()
+
+      return { success: true, id: leaveId }
+    } catch (err) {
+      console.error('[ipc] LEAVE_CREATE error:', err)
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.LEAVE_GET, (_event, id: number) => {
+    try {
+      const db = getDatabase()
+      const record = db.select().from(leaveRecords).where(eq(leaveRecords.id, id)).get()
+      if (!record) return null
+
+      const person = db.select().from(personnel).where(eq(personnel.id, record.personnelId)).get()
+      const rankRow = person?.rankId
+        ? db.select().from(ranks).where(eq(ranks.id, person.rankId)).get()
+        : null
+
+      return {
+        ...record,
+        fullName: person?.fullName ?? '',
+        rankName: rankRow?.name ?? null
+      }
+    } catch (err) {
+      console.error('[ipc] LEAVE_GET error:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle(IPC.LEAVE_DELETE, (_event, id: number) => {
+    try {
+      const db = getDatabase()
+      db.delete(leaveRecords).where(eq(leaveRecords.id, id)).run()
+
+      db.insert(auditLog)
+        .values({
+          tableName: 'leave_records',
+          recordId: id,
+          action: 'delete',
+          oldValues: JSON.stringify({ id })
+        })
+        .run()
+
+      return { success: true }
+    } catch (err) {
+      console.error('[ipc] LEAVE_DELETE error:', err)
+      return { success: false }
+    }
+  })
+
+  ipcMain.handle(IPC.LEAVE_GENERATE_TICKET, (_event, leaveId: number) => {
+    try {
+      const db = getDatabase()
+      const record = db.select().from(leaveRecords).where(eq(leaveRecords.id, leaveId)).get()
+      if (!record) return { success: false, error: 'Leave record not found' }
+
+      const person = db.select().from(personnel).where(eq(personnel.id, record.personnelId)).get()
+      if (!person) return { success: false, error: 'Personnel not found' }
+
+      const rankRow = person.rankId
+        ? db.select().from(ranks).where(eq(ranks.id, person.rankId)).get()
+        : null
+
+      // Find position
+      const pos = person.currentPositionIdx
+        ? db.select().from(positions).where(eq(positions.positionIndex, person.currentPositionIdx)).get()
+        : null
+
+      const subRow = person.currentSubdivision
+        ? db.select().from(subdivisions).where(eq(subdivisions.code, person.currentSubdivision)).get()
+        : null
+
+      // Find leave_ticket template
+      const tmpl = db
+        .select()
+        .from(documentTemplates)
+        .where(eq(documentTemplates.templateType, 'leave_ticket'))
+        .get()
+
+      if (!tmpl) return { success: false, error: 'Leave ticket template not found' }
+
+      // Generate document
+      const genResult = generateDocument({
+        templateId: tmpl.id,
+        title: `Відпускний квиток — ${person.fullName}`,
+        personnelIds: [person.id],
+        fields: {
+          ticketNumber: record.ticketNumber ?? '',
+          rankName: rankRow?.name ?? '',
+          fullName: person.fullName,
+          ipn: person.ipn,
+          positionTitle: pos?.title ?? '',
+          subdivisionName: subRow?.name ?? '',
+          leaveType: record.leaveType,
+          startDate: record.startDate,
+          endDate: record.endDate,
+          travelDays: String(record.travelDays ?? 2),
+          destination: record.destination ?? '',
+          orderNumber: record.orderNumber ?? '',
+          orderDate: record.orderDate ?? ''
+        }
+      })
+
+      return { success: true, document: genResult }
+    } catch (err) {
+      console.error('[ipc] LEAVE_GENERATE_TICKET error:', err)
+      return { success: false, error: String(err) }
     }
   })
 

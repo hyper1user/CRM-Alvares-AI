@@ -18,7 +18,9 @@ import {
   FileProtectOutlined,
   MedicineBoxOutlined,
   CheckCircleOutlined,
-  FolderOpenOutlined
+  FolderOpenOutlined,
+  AlertOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons'
 import { useTemplateList } from '@renderer/hooks/useDocuments'
 import PersonnelSearchSelect from '@renderer/components/movements/PersonnelSearchSelect'
@@ -30,7 +32,9 @@ const { Title, Text } = Typography
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   order: <FileTextOutlined style={{ fontSize: 32, color: '#1677ff' }} />,
   leave_ticket: <FileProtectOutlined style={{ fontSize: 32, color: '#52c41a' }} />,
-  injury_certificate: <MedicineBoxOutlined style={{ fontSize: 32, color: '#fa541c' }} />
+  injury_certificate: <MedicineBoxOutlined style={{ fontSize: 32, color: '#fa541c' }} />,
+  report: <AlertOutlined style={{ fontSize: 32, color: '#faad14' }} />,
+  certificate: <SafetyCertificateOutlined style={{ fontSize: 32, color: '#722ed1' }} />
 }
 
 export default function DocumentGenerator(): JSX.Element {

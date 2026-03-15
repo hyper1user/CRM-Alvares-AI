@@ -15,7 +15,10 @@ const { Title } = Typography
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   order: { label: 'Наказ', color: 'blue' },
   leave_ticket: { label: 'Відпускний квиток', color: 'green' },
-  injury_certificate: { label: 'Довідка поранення', color: 'orange' }
+  injury_certificate: { label: 'Довідка поранення', color: 'orange' },
+  report: { label: 'Рапорт', color: 'cyan' },
+  certificate: { label: 'Довідка', color: 'purple' },
+  notification: { label: 'Повідомлення', color: 'gold' }
 }
 
 export default function DocumentArchive(): JSX.Element {

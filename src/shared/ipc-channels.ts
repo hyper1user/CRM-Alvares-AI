@@ -52,10 +52,15 @@ export const IPC = {
   // Orders
   ORDERS_LIST: 'orders:list',
   ORDERS_CREATE: 'orders:create',
+  ORDERS_GET: 'orders:get',
+  ORDERS_DELETE: 'orders:delete',
 
   // Leave
   LEAVE_LIST: 'leave:list',
   LEAVE_CREATE: 'leave:create',
+  LEAVE_GET: 'leave:get',
+  LEAVE_DELETE: 'leave:delete',
+  LEAVE_GENERATE_TICKET: 'leave:generate-ticket',
 
   // Injuries
   INJURIES_LIST: 'injuries:list',

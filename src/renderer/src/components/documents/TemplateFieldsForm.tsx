@@ -1,8 +1,8 @@
 import { Form, Input } from 'antd'
 
-// Human-readable labels for known template tags
+// Human-readable labels for known template tags (Latin + Cyrillic)
 const TAG_LABELS: Record<string, string> = {
-  // Common
+  // Common (Latin)
   unitName: 'Назва підрозділу',
   unitDesignation: 'Позначення в/ч',
   commanderRank: 'Звання командира',
@@ -31,7 +31,50 @@ const TAG_LABELS: Record<string, string> = {
   circumstances: 'Обставини',
   forma100Number: '№ Форма 100',
   forma100Date: 'Дата Форма 100',
-  hospitalName: 'Медичний заклад'
+  hospitalName: 'Медичний заклад',
+
+  // Cyrillic tags from real <<>> templates (шаблони/)
+  // -- Доповіді / Рапорти --
+  'ЗВ_ПІБ': 'Звання та ПІБ',
+  'ЗВ_ПІБ_О': 'Звання, ПІБ (ознайомлений)',
+  'ЗВ_ПІБ_Р': 'Звання, ПІБ (родинні)',
+  'ЗВ_ПІБ_Д': 'Звання, ПІБ (давальний)',
+  'ЗВ_ПІБ_ПОС': 'Звання, ПІБ, посада',
+  'ЗВ_ПІБ_ПОС_Р': 'Звання, ПІБ, посада (родинні)',
+  'ЗВ_ПІБ_ПОС_Д': 'Звання, ПІБ, посада (давальний)',
+  'Дата': 'Дата',
+  'Дата+1': 'Дата (наступний день)',
+  'Дата_вп': 'Дата відпустки',
+  'Дата_евакуації': 'Дата евакуації',
+  'Дата_УБД': 'Дата посвідчення УБД',
+  'Дата_події': 'Дата події',
+  'Год_доп': 'Година доповіді',
+  'Хв_доп': 'Хвилина доповіді',
+  'Час_евакуації': 'Час евакуації',
+  'Подія': 'Подія',
+  'Діагноз': 'Діагноз',
+  'Причина_поранення': 'Причина поранення',
+  'Стадія_евакуації': 'Стадія евакуації',
+  'Зброя': 'Зброя',
+  'Місце_зброї': 'Місцезнаходження зброї',
+  'Інформація': 'Додаткова інформація',
+  'Морг': 'Морг',
+  'місце_моргу': 'Місце моргу',
+  'Вид_служби': 'Вид служби',
+  'Склад': 'Склад',
+  'Адреса_проживання': 'Адреса проживання',
+  'Телефон': 'Телефон',
+  'Посада': 'Посада',
+  'Звання': 'Звання',
+  'Підпис': 'Підпис',
+  'РАПОРТ_КОГО': 'Рапорт від кого',
+  'Серія_УБД': 'Серія УБД',
+  'Номер_УБД': 'Номер УБД',
+  // -- Загальні --
+  'ПІБ': 'ПІБ',
+  'ІПН': 'ІПН',
+  'Підрозділ': 'Підрозділ',
+  'Місце': 'Місце'
 }
 
 // Tags that are auto-filled from settings
@@ -39,11 +82,20 @@ const AUTO_SETTINGS_TAGS = new Set([
   'unitName',
   'unitDesignation',
   'commanderRank',
-  'commanderName'
+  'commanderName',
+  'Назва частини',
+  'Позначення частини',
+  'Командир звання',
+  'Командир ПІБ'
 ])
 
 // Tags auto-filled from personnel
-const AUTO_PERSONNEL_TAGS = new Set(['fullName', 'ipn'])
+const AUTO_PERSONNEL_TAGS = new Set([
+  'fullName',
+  'ipn',
+  'ПІБ',
+  'ІПН'
+])
 
 interface Props {
   tags: string[]
@@ -72,7 +124,8 @@ export default function TemplateFieldsForm({ tags, hasPersonnel }: Props): JSX.E
       )}
       {manualTags.map((tag) => {
         const label = TAG_LABELS[tag] ?? tag
-        const isMultiline = tag === 'body' || tag === 'circumstances'
+        const isMultiline = tag === 'body' || tag === 'circumstances' ||
+          tag === 'Текст наказу' || tag === 'Обставини'
         return (
           <Form.Item key={tag} name={['fields', tag]} label={label}>
             {isMultiline ? (

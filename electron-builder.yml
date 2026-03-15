@@ -17,6 +17,11 @@ files:
   - '!**/*.sqlite'
   - '!**/*.docx'
   - '!**/*.pdf'
+extraResources:
+  - from: resources/templates/
+    to: templates/
+    filter:
+      - "**/*.docx"
 asar: true
 asarUnpack:
   - "node_modules/better-sqlite3/**"

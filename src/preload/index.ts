@@ -116,6 +116,26 @@ const api = {
   documentsOpen: (filePath: string) => ipcRenderer.invoke(IPC.DOCUMENTS_OPEN, filePath),
   documentsDelete: (id: number) => ipcRenderer.invoke(IPC.DOCUMENTS_DELETE, id),
 
+  // Orders
+  ordersList: (filters?: { search?: string; orderType?: string; dateFrom?: string; dateTo?: string }) =>
+    ipcRenderer.invoke(IPC.ORDERS_LIST, filters),
+  ordersCreate: (data: Record<string, unknown>) => ipcRenderer.invoke(IPC.ORDERS_CREATE, data),
+  ordersGet: (id: number) => ipcRenderer.invoke(IPC.ORDERS_GET, id),
+  ordersDelete: (id: number) => ipcRenderer.invoke(IPC.ORDERS_DELETE, id),
+
+  // Leave Records
+  leaveList: (filters?: {
+    search?: string
+    leaveType?: string
+    personnelId?: number
+    dateFrom?: string
+    dateTo?: string
+  }) => ipcRenderer.invoke(IPC.LEAVE_LIST, filters),
+  leaveCreate: (data: Record<string, unknown>) => ipcRenderer.invoke(IPC.LEAVE_CREATE, data),
+  leaveGet: (id: number) => ipcRenderer.invoke(IPC.LEAVE_GET, id),
+  leaveDelete: (id: number) => ipcRenderer.invoke(IPC.LEAVE_DELETE, id),
+  leaveGenerateTicket: (id: number) => ipcRenderer.invoke(IPC.LEAVE_GENERATE_TICKET, id),
+
   // Statistics
   statisticsSummary: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_SUMMARY, subdivision),
   statisticsByStatus: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS, subdivision),

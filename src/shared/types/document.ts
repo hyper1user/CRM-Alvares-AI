@@ -1,3 +1,5 @@
+// ==================== ORDERS ====================
+
 export interface Order {
   id: number
   orderType: string
@@ -18,6 +20,85 @@ export interface OrderItem {
   description: string | null
   sortOrder: number | null
 }
+
+export interface OrderListItem extends Order {
+  itemsCount: number
+}
+
+export interface OrderFilters {
+  search?: string
+  orderType?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+export interface CreateOrderRequest {
+  orderType: string
+  orderNumber: string
+  orderDate: string
+  subject?: string
+  bodyText?: string
+  signedBy?: string
+  items?: CreateOrderItemRequest[]
+}
+
+export interface CreateOrderItemRequest {
+  personnelId?: number | null
+  actionType?: string
+  description?: string
+  sortOrder?: number
+}
+
+export interface OrderWithItems extends Order {
+  items: OrderItem[]
+}
+
+// ==================== LEAVE RECORDS ====================
+
+export interface LeaveRecord {
+  id: number
+  personnelId: number
+  leaveType: string
+  startDate: string
+  endDate: string
+  travelDays: number | null
+  destination: string | null
+  orderNumber: string | null
+  orderDate: string | null
+  ticketNumber: string | null
+  returnDate: string | null
+  tccRegistration: string | null
+  notes: string | null
+  createdAt: string
+}
+
+export interface LeaveRecordListItem extends LeaveRecord {
+  fullName: string
+  rankName: string | null
+}
+
+export interface LeaveRecordFilters {
+  search?: string
+  leaveType?: string
+  personnelId?: number
+  dateFrom?: string
+  dateTo?: string
+}
+
+export interface CreateLeaveRecordRequest {
+  personnelId: number
+  leaveType: string
+  startDate: string
+  endDate: string
+  travelDays?: number
+  destination?: string
+  orderNumber?: string
+  orderDate?: string
+  ticketNumber?: string
+  notes?: string
+}
+
+// ==================== DOCUMENT TEMPLATES ====================
 
 export interface DocumentTemplate {
   id: number

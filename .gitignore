@@ -21,6 +21,9 @@ dist/
 *.doc
 *.pdf
 
+# Виняток: шаблони документів (без ПД)
+!resources/templates/*.docx
+
 # Шаблони заповнені даними
 generated-documents/
 

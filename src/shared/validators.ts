@@ -169,3 +169,39 @@ export const statusHistoryCreateSchema = z.object({
 })
 
 export type StatusHistoryCreateInput = z.infer<typeof statusHistoryCreateSchema>
+
+// Order create schema
+export const orderItemCreateSchema = z.object({
+  personnelId: z.number().nullable().optional(),
+  actionType: z.string().optional().or(z.literal('')),
+  description: z.string().optional().or(z.literal('')),
+  sortOrder: z.number().optional()
+})
+
+export const orderCreateSchema = z.object({
+  orderType: z.string().min(1, 'Тип наказу обов\'язковий'),
+  orderNumber: z.string().min(1, 'Номер наказу обов\'язковий'),
+  orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата наказу обов\'язкова'),
+  subject: z.string().optional().or(z.literal('')),
+  bodyText: z.string().optional().or(z.literal('')),
+  signedBy: z.string().optional().or(z.literal('')),
+  items: z.array(orderItemCreateSchema).optional()
+})
+
+export type OrderCreateInput = z.infer<typeof orderCreateSchema>
+
+// Leave record create schema
+export const leaveRecordCreateSchema = z.object({
+  personnelId: z.number({ required_error: 'Оберіть особу' }),
+  leaveType: z.string().min(1, 'Тип відпустки обов\'язковий'),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата початку обов\'язкова'),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата закінчення обов\'язкова'),
+  travelDays: z.number().min(0).optional(),
+  destination: z.string().optional().or(z.literal('')),
+  orderNumber: z.string().optional().or(z.literal('')),
+  orderDate: dateSchema,
+  ticketNumber: z.string().optional().or(z.literal('')),
+  notes: z.string().optional().or(z.literal(''))
+})
+
+export type LeaveRecordCreateInput = z.infer<typeof leaveRecordCreateSchema>

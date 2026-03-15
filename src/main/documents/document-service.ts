@@ -36,10 +36,11 @@ interface TemplateDefinition {
   templateType: string
   description: string
   fileName: string
-  lines: string[]
+  lines: string[] // fallback content if .docx file not in resources/
 }
 
 const DEFAULT_TEMPLATES: TemplateDefinition[] = [
+  // ==================== GENERATED (fallback) ====================
   {
     name: 'Наказ по ОС',
     templateType: 'order',
@@ -107,6 +108,159 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
       'Командир {unitDesignation}',
       '{commanderRank} {commanderName}'
     ]
+  },
+
+  // ==================== ДОПОВІДІ (reports) ====================
+  {
+    name: 'Доповідь 1×300',
+    templateType: 'report',
+    description: 'Доповідь про одиночне поранення (300)',
+    fileName: 'report-300-single.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь 1×БТ',
+    templateType: 'report',
+    description: 'Доповідь про бойову травму (одиночна)',
+    fileName: 'report-bt-single.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь 1×ЗБ',
+    templateType: 'report',
+    description: 'Доповідь про загибель (одиночна)',
+    fileName: 'report-combat-loss-single.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь 200',
+    templateType: 'report',
+    description: 'Доповідь про безповоротну втрату (200)',
+    fileName: 'report-200.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь 2+×300',
+    templateType: 'report',
+    description: 'Доповідь про множинні поранення (300)',
+    fileName: 'report-300-multi.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь повернення (рез. бат.)',
+    templateType: 'report',
+    description: 'Доповідь про повернення з СЗЧ до резервного батальйону',
+    fileName: 'report-return-reserve.docx',
+    lines: []
+  },
+  {
+    name: 'Доповідь повернення (підрозділ)',
+    templateType: 'report',
+    description: 'Доповідь про повернення з СЗЧ до підрозділу',
+    fileName: 'report-return-unit.docx',
+    lines: []
+  },
+
+  // ==================== ЗВІЛЬНЕННЯ (discharge) ====================
+  {
+    name: 'Звільнення — відпустка УБД',
+    templateType: 'certificate',
+    description: 'Звільнення: відпустка учасника бойових дій',
+    fileName: 'discharge-leave-ubd.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — здача посади',
+    templateType: 'certificate',
+    description: 'Звільнення: акт здачі-прийому посади',
+    fileName: 'discharge-handover.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — речове майно',
+    templateType: 'certificate',
+    description: 'Звільнення: виплата за неотримане речове майно',
+    fileName: 'discharge-clothing.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — направлення на облік',
+    templateType: 'certificate',
+    description: 'Звільнення: направлення на військовий облік',
+    fileName: 'discharge-registration.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — невикористана відпустка',
+    templateType: 'certificate',
+    description: 'Звільнення: компенсація невикористаної відпустки',
+    fileName: 'discharge-unused-leave.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — оздоровчі',
+    templateType: 'certificate',
+    description: 'Звільнення: оздоровчі виплати',
+    fileName: 'discharge-health.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — соціально-побутові',
+    templateType: 'certificate',
+    description: 'Звільнення: соціально-побутові виплати',
+    fileName: 'discharge-social.docx',
+    lines: []
+  },
+
+  // ==================== РАПОРТИ (raports) ====================
+  {
+    name: 'Рапорт 1×300',
+    templateType: 'report',
+    description: 'Рапорт про одиночне поранення (300)',
+    fileName: 'raport-300-single.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт 1×ЗБ',
+    templateType: 'report',
+    description: 'Рапорт про загибель',
+    fileName: 'raport-combat-loss.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт 200',
+    templateType: 'report',
+    description: 'Рапорт про безповоротну втрату (200)',
+    fileName: 'raport-200.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт 2+×БТ',
+    templateType: 'report',
+    description: 'Рапорт про множинні бойові травми',
+    fileName: 'raport-bt-multi.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт відпустка (за сімейними)',
+    templateType: 'report',
+    description: 'Рапорт на відпустку за сімейними обставинами',
+    fileName: 'raport-leave-family.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт відпустка (основна)',
+    templateType: 'report',
+    description: 'Рапорт на основну щорічну відпустку',
+    fileName: 'raport-leave-main.docx',
+    lines: []
+  },
+  {
+    name: 'Рапорт ВПХ',
+    templateType: 'report',
+    description: 'Рапорт на відпустку по хворобі',
+    fileName: 'raport-leave-medical.docx',
+    lines: []
   }
 ]
 
@@ -118,22 +272,30 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
 export function seedDefaultTemplates(): void {
   const db = getDatabase()
   const existing = db.select().from(documentTemplates).all()
-  if (existing.length > 0) return
+  const existingNames = new Set(existing.map((t) => t.name))
 
-  console.log('[documents] Seeding default templates...')
+  // Filter only templates not yet in DB
+  const toSeed = DEFAULT_TEMPLATES.filter((def) => !existingNames.has(def.name))
+  if (toSeed.length === 0) return
+
+  console.log(`[documents] Seeding ${toSeed.length} new templates...`)
   const templatesDir = getTemplatesDir()
 
-  for (const def of DEFAULT_TEMPLATES) {
+  for (const def of toSeed) {
     const filePath = join(templatesDir, def.fileName)
 
     // Check if source template exists in resources/
     const resourcePath = getResourceTemplatePath(def.fileName)
     if (resourcePath && existsSync(resourcePath)) {
       copyFileSync(resourcePath, filePath)
-    } else {
-      // Generate minimal docx programmatically
+    } else if (def.lines.length > 0) {
+      // Generate minimal docx programmatically (only for templates with content)
       const buffer = createMinimalDocx(def.lines)
       writeFileSync(filePath, buffer)
+    } else {
+      // No resource file and no fallback lines — skip this template
+      console.warn(`[documents] Skipping template "${def.name}": no source file found`)
+      continue
     }
 
     db.insert(documentTemplates)
@@ -147,7 +309,7 @@ export function seedDefaultTemplates(): void {
       .run()
   }
 
-  console.log(`[documents] Seeded ${DEFAULT_TEMPLATES.length} templates`)
+  console.log(`[documents] Seeded ${toSeed.length} templates (total: ${existing.length + toSeed.length})`)
 }
 
 function getResourceTemplatePath(fileName: string): string | null {
@@ -208,13 +370,24 @@ export function generateDocument(request: GenerateDocumentRequest): GeneratedDoc
   // Build data map: merge settings + personnel data + request fields
   const data: Record<string, string> = {}
 
-  // Settings (unit info)
+  // Settings (unit info) — both Latin and Cyrillic keys
   const allSettings = db.select().from(settings).all()
   const settingsMap = new Map(allSettings.map((s) => [s.key, s.value]))
-  data.unitName = settingsMap.get('unit_name') ?? ''
-  data.unitDesignation = settingsMap.get('unit_designation') ?? ''
-  data.commanderRank = settingsMap.get('commander_rank') ?? ''
-  data.commanderName = settingsMap.get('commander_name') ?? ''
+  const unitName = settingsMap.get('unit_name') ?? ''
+  const unitDesignation = settingsMap.get('unit_designation') ?? ''
+  const commanderRank = settingsMap.get('commander_rank') ?? ''
+  const commanderName = settingsMap.get('commander_name') ?? ''
+
+  // Latin keys
+  data.unitName = unitName
+  data.unitDesignation = unitDesignation
+  data.commanderRank = commanderRank
+  data.commanderName = commanderName
+  // Cyrillic keys (for <<>> templates)
+  data['Назва частини'] = unitName
+  data['Позначення частини'] = unitDesignation
+  data['Командир звання'] = commanderRank
+  data['Командир ПІБ'] = commanderName
 
   // Personnel auto-fill (first personnel if provided)
   if (request.personnelIds && request.personnelIds.length > 0) {
@@ -227,6 +400,9 @@ export function generateDocument(request: GenerateDocumentRequest): GeneratedDoc
     if (person) {
       data.fullName = String(person.fullName ?? '')
       data.ipn = String(person.ipn ?? '')
+      // Cyrillic keys
+      data['ПІБ'] = data.fullName
+      data['ІПН'] = data.ipn
     }
   }
 

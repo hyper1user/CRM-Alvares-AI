@@ -1,9 +1,35 @@
 /**
  * DOCX Engine — generates documents from .docx templates using docxtemplater
+ * Supports both {tag} and <<tag>> delimiters (auto-detected)
  */
 import { readFileSync } from 'fs'
 import PizZip from 'pizzip'
 import Docxtemplater from 'docxtemplater'
+
+interface DelimiterConfig {
+  start: string
+  end: string
+}
+
+const DEFAULT_DELIMITERS: DelimiterConfig = { start: '{', end: '}' }
+const ANGLE_DELIMITERS: DelimiterConfig = { start: '<<', end: '>>' }
+
+/**
+ * Auto-detect delimiter type by scanning word/document.xml
+ * Returns <<>> if found, otherwise default {}
+ */
+function detectDelimiters(zip: PizZip): DelimiterConfig {
+  try {
+    const xmlContent = zip.file('word/document.xml')?.asText() ?? ''
+    // Check for <<TAG>> pattern (including cyrillic chars)
+    if (/&lt;&lt;[\p{L}\w]+&gt;&gt;/u.test(xmlContent) || /<<[\p{L}\w]+>>/u.test(xmlContent)) {
+      return ANGLE_DELIMITERS
+    }
+  } catch {
+    // fallback to default
+  }
+  return DEFAULT_DELIMITERS
+}
 
 /**
  * Generate a .docx buffer by rendering template with data
@@ -11,45 +37,50 @@ import Docxtemplater from 'docxtemplater'
 export function generateDocx(templatePath: string, data: Record<string, string>): Buffer {
   const content = readFileSync(templatePath, 'binary')
   const zip = new PizZip(content)
+  const delimiters = detectDelimiters(zip)
+
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
-    linebreaks: true
+    linebreaks: true,
+    delimiters
   })
   doc.render(data)
   return doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
 }
 
 /**
- * Extract template tags (placeholders) from a .docx template using InspectModule
+ * Extract template tags (placeholders) from a .docx template
+ * Supports both {tag} and <<tag>> delimiters, including cyrillic tag names
  */
 export function getTemplateTags(templatePath: string): string[] {
   const content = readFileSync(templatePath, 'binary')
   const zip = new PizZip(content)
 
-  // Use nullGetter to collect tags
   const tags = new Set<string>()
 
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true
-  })
-
-  // Get parsed XML and extract tags via regex on the compiled template
-  const text = doc.getFullText()
-  // Tags in the fullText appear as-is since they haven't been rendered
-  // Use a different approach: render with proxy to capture tags
-  doc.getZip() // ensure parsed
-
-  // Parse the raw XML to find {tag} patterns
-  const xmlFiles = ['word/document.xml']
+  const xmlFiles = ['word/document.xml', 'word/header1.xml', 'word/footer1.xml']
   for (const xmlFile of xmlFiles) {
     try {
       const xmlContent = zip.file(xmlFile)?.asText() ?? ''
-      // Match docxtemplater tags: {tagName} but not {#loop} or {/loop}
-      const tagRegex = /\{([a-zA-Z_]\w*)\}/g
+
+      // Match {tagName} — latin + digits + underscore
+      const braceRegex = /\{([a-zA-Z_]\w*)\}/g
       let match: RegExpExecArray | null
-      while ((match = tagRegex.exec(xmlContent)) !== null) {
+      while ((match = braceRegex.exec(xmlContent)) !== null) {
         tags.add(match[1])
+      }
+
+      // Match <<TAG>> — supports cyrillic, latin, digits, underscore, spaces
+      // In XML, < and > may be escaped as &lt; &gt;
+      const angleEscRegex = /&lt;&lt;([\p{L}\w\s]+?)&gt;&gt;/gu
+      while ((match = angleEscRegex.exec(xmlContent)) !== null) {
+        tags.add(match[1].trim())
+      }
+
+      // Also match raw <<TAG>> (sometimes present in runs)
+      const angleRawRegex = /<<([\p{L}\w\s]+?)>>/gu
+      while ((match = angleRawRegex.exec(xmlContent)) !== null) {
+        tags.add(match[1].trim())
       }
     } catch {
       // skip if file not found
