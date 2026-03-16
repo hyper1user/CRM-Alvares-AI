@@ -5,6 +5,9 @@ export function initAutoUpdater(): void {
   // Don't check for updates in dev mode
   if (process.env.NODE_ENV === 'development') return
 
+  // GitHub PAT (read-only, Contents permission) for private repo access
+  process.env.GH_TOKEN = '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'
+
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
 

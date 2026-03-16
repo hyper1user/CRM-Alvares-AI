@@ -130,6 +130,7 @@ export default function AppLayout(): JSX.Element {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
   const [dbStatus, setDbStatus] = useState<string>('')
+  const [appVersion, setAppVersion] = useState<string>('')
   const { token } = theme.useToken()
   const { mode, toggle: toggleTheme } = useContext(ThemeContext)
   const isDark = mode === 'dark'
@@ -141,6 +142,7 @@ export default function AppLayout(): JSX.Element {
     window.api.dbHealth().then((result: { ok: boolean; message: string }) => {
       setDbStatus(result.ok ? 'OK' : 'Error')
     })
+    window.api.appVersion().then(setAppVersion)
   }, [])
 
   const onMenuClick: MenuProps['onClick'] = ({ key }) => {
@@ -195,6 +197,20 @@ export default function AppLayout(): JSX.Element {
             style={{ borderRight: 0 }}
           />
         </div>
+        {appVersion && (
+          <div
+            style={{
+              padding: collapsed ? '8px 0' : '8px 16px',
+              textAlign: 'center',
+              fontSize: 11,
+              color: token.colorTextQuaternary,
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              flexShrink: 0
+            }}
+          >
+            {collapsed ? `v${appVersion}` : `ЕЖООС+ v${appVersion}`}
+          </div>
+        )}
       </Sider>
 
       <Layout style={{ marginLeft: collapsed ? 80 : 230, transition: 'margin-left 0.2s', height: '100vh', overflow: 'hidden' }}>

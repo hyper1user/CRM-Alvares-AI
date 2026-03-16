@@ -3,6 +3,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc-channels'
 
 const api = {
+  // App
+  appVersion: (): Promise<string> => ipcRenderer.invoke(IPC.APP_VERSION),
+
   // DB
   dbHealth: () => ipcRenderer.invoke(IPC.DB_HEALTH),
 

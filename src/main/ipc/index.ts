@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, app } from 'electron'
 import { getDatabase } from '../db/connection'
 import { IPC } from '@shared/ipc-channels'
 import {
@@ -37,6 +37,9 @@ import {
 } from '../documents/document-service'
 
 export function registerIpcHandlers(): void {
+  // App version
+  ipcMain.handle(IPC.APP_VERSION, () => app.getVersion())
+
   // DB Health Check
   ipcMain.handle(IPC.DB_HEALTH, () => {
     try {

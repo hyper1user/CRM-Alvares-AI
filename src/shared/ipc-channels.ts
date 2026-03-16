@@ -1,4 +1,7 @@
 export const IPC = {
+  // App
+  APP_VERSION: 'app:version',
+
   // Database
   DB_HEALTH: 'db:health',
 
