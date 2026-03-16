@@ -17,12 +17,18 @@ const ANGLE_DELIMITERS: DelimiterConfig = { start: '<<', end: '>>' }
 /**
  * Auto-detect delimiter type by scanning word/document.xml
  * Returns <<>> if found, otherwise default {}
+ * Checks both complete tags in single text nodes and split tags across runs
  */
 function detectDelimiters(zip: PizZip): DelimiterConfig {
   try {
     const xmlContent = zip.file('word/document.xml')?.asText() ?? ''
-    // Check for <<TAG>> pattern (including cyrillic chars)
-    if (/&lt;&lt;[\p{L}\w]+&gt;&gt;/u.test(xmlContent) || /<<[\p{L}\w]+>>/u.test(xmlContent)) {
+    // Check for <<TAG>> in a single text node
+    if (/&lt;&lt;[\p{L}\w\s]+?&gt;&gt;/u.test(xmlContent) || /<<[\p{L}\w\s]+?>>/u.test(xmlContent)) {
+      return ANGLE_DELIMITERS
+    }
+    // Check for split tags: &lt;&lt; in one run, &gt;&gt; in another
+    // Just detect presence of escaped angle brackets as delimiters
+    if (/&lt;&lt;/.test(xmlContent) && /&gt;&gt;/.test(xmlContent)) {
       return ANGLE_DELIMITERS
     }
   } catch {
@@ -42,48 +48,71 @@ export function generateDocx(templatePath: string, data: Record<string, string>)
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
-    delimiters
+    delimiters,
+    nullGetter(): string {
+      return ''
+    }
   })
   doc.render(data)
   return doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
 }
 
 /**
- * Extract template tags (placeholders) from a .docx template
- * Supports both {tag} and <<tag>> delimiters, including cyrillic tag names
+ * Extract template tags (placeholders) from a .docx template.
+ * Uses docxtemplater's own parser to correctly handle tags split across XML runs
+ * (e.g. by Word's spell-checker <w:proofErr> elements).
  */
 export function getTemplateTags(templatePath: string): string[] {
   const content = readFileSync(templatePath, 'binary')
   const zip = new PizZip(content)
+  const delimiters = detectDelimiters(zip)
 
   const tags = new Set<string>()
 
-  const xmlFiles = ['word/document.xml', 'word/header1.xml', 'word/footer1.xml']
-  for (const xmlFile of xmlFiles) {
-    try {
-      const xmlContent = zip.file(xmlFile)?.asText() ?? ''
+  // Use docxtemplater to parse — it correctly merges text across XML runs
+  try {
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      delimiters,
+      nullGetter(): string {
+        return ''
+      }
+    })
+    const fullText = doc.getFullText()
 
-      // Match {tagName} — latin + digits + underscore
+    // Extract tags from the merged full text
+    if (delimiters.start === '<<') {
+      const angleRegex = /<<([\p{L}\w\s+]+?)>>/gu
+      let match: RegExpExecArray | null
+      while ((match = angleRegex.exec(fullText)) !== null) {
+        tags.add(match[1].trim())
+      }
+    } else {
       const braceRegex = /\{([a-zA-Z_]\w*)\}/g
       let match: RegExpExecArray | null
-      while ((match = braceRegex.exec(xmlContent)) !== null) {
+      while ((match = braceRegex.exec(fullText)) !== null) {
         tags.add(match[1])
       }
-
-      // Match <<TAG>> — supports cyrillic, latin, digits, underscore, spaces
-      // In XML, < and > may be escaped as &lt; &gt;
-      const angleEscRegex = /&lt;&lt;([\p{L}\w\s]+?)&gt;&gt;/gu
-      while ((match = angleEscRegex.exec(xmlContent)) !== null) {
-        tags.add(match[1].trim())
+    }
+  } catch {
+    // Fallback: regex on raw XML (for edge cases)
+    const xmlFiles = ['word/document.xml', 'word/header1.xml', 'word/footer1.xml']
+    for (const xmlFile of xmlFiles) {
+      try {
+        const xmlContent = zip.file(xmlFile)?.asText() ?? ''
+        let match: RegExpExecArray | null
+        const braceRegex = /\{([a-zA-Z_]\w*)\}/g
+        while ((match = braceRegex.exec(xmlContent)) !== null) {
+          tags.add(match[1])
+        }
+        const angleEscRegex = /&lt;&lt;([\p{L}\w\s]+?)&gt;&gt;/gu
+        while ((match = angleEscRegex.exec(xmlContent)) !== null) {
+          tags.add(match[1].trim())
+        }
+      } catch {
+        // skip
       }
-
-      // Also match raw <<TAG>> (sometimes present in runs)
-      const angleRawRegex = /<<([\p{L}\w\s]+?)>>/gu
-      while ((match = angleRawRegex.exec(xmlContent)) !== null) {
-        tags.add(match[1].trim())
-      }
-    } catch {
-      // skip if file not found
     }
   }
 
