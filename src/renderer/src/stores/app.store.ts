@@ -1,20 +1,20 @@
 import { create } from 'zustand'
 import dayjs from 'dayjs'
 
-const SUBDIVISION_KEY = 'ejoos-global-subdivision'
+// Додаток працює лише для 12 ШР (код підрозділу у БД)
+export const HOME_SUBDIVISION = 'Г-3'
 
 interface AppState {
   currentMonth: string // YYYY-MM
   unitName: string
   dbConnected: boolean
   sidebarCollapsed: boolean
-  globalSubdivision: string | undefined // subdivision code or undefined = all
+  globalSubdivision: string // завжди 'Г-3'
 
   setCurrentMonth: (month: string) => void
   setUnitName: (name: string) => void
   setDbConnected: (connected: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
-  setGlobalSubdivision: (code: string | undefined) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -22,18 +22,10 @@ export const useAppStore = create<AppState>((set) => ({
   unitName: '12 ОШР "Хижаки"',
   dbConnected: false,
   sidebarCollapsed: false,
-  globalSubdivision: localStorage.getItem(SUBDIVISION_KEY) || undefined,
+  globalSubdivision: HOME_SUBDIVISION,
 
   setCurrentMonth: (month) => set({ currentMonth: month }),
   setUnitName: (name) => set({ unitName: name }),
   setDbConnected: (connected) => set({ dbConnected: connected }),
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-  setGlobalSubdivision: (code) => {
-    if (code) {
-      localStorage.setItem(SUBDIVISION_KEY, code)
-    } else {
-      localStorage.removeItem(SUBDIVISION_KEY)
-    }
-    set({ globalSubdivision: code })
-  }
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed })
 }))

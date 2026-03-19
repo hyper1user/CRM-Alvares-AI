@@ -1,5 +1,5 @@
 appId: com.12oshr.ejoos-plus
-productName: ЕЖООС+
+productName: АльваресAI
 directories:
   buildResources: build
 files:
@@ -31,8 +31,8 @@ win:
   icon: build/icon.ico
 nsis:
   artifactName: EJOOS-Plus-${version}-setup.${ext}
-  shortcutName: ЕЖООС+
-  uninstallDisplayName: ЕЖООС+
+  shortcutName: АльваресAI
+  uninstallDisplayName: АльваресAI
   createDesktopShortcut: always
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -42,5 +42,4 @@ publish:
   provider: github
   owner: hyper1user
   repo: ejoos-plus
-  private: true
   releaseType: release

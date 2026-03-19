@@ -6,11 +6,13 @@ import ExcludedPersonnel from './pages/ExcludedPersonnel'
 import OrgStructure from './pages/OrgStructure'
 import StaffingTable from './pages/StaffingTable'
 import PositionRegistry from './pages/PositionRegistry'
+import StaffRoster from './pages/StaffRoster'
 import Movements from './pages/Movements'
 import StatusBoard from './pages/StatusBoard'
 import MonthlyAttendance from './pages/MonthlyAttendance'
 import FormationReport from './pages/FormationReport'
 import Orders from './pages/Orders'
+import MissingDocuments from './pages/MissingDocuments'
 import LeaveRecords from './pages/LeaveRecords'
 import InjuriesLosses from './pages/InjuriesLosses'
 import DocumentGenerator from './pages/DocumentGenerator'
@@ -29,11 +31,13 @@ export default function AppRoutes(): JSX.Element {
       <Route path="/org-structure" element={<OrgStructure />} />
       <Route path="/staffing" element={<StaffingTable />} />
       <Route path="/positions" element={<PositionRegistry />} />
+      <Route path="/staff-roster" element={<StaffRoster />} />
       <Route path="/movements" element={<Movements />} />
       <Route path="/statuses" element={<StatusBoard />} />
       <Route path="/attendance" element={<MonthlyAttendance />} />
       <Route path="/formation-report" element={<FormationReport />} />
       <Route path="/orders" element={<Orders />} />
+      <Route path="/missing-docs" element={<MissingDocuments />} />
       <Route path="/leave" element={<LeaveRecords />} />
       <Route path="/injuries" element={<InjuriesLosses />} />
       <Route path="/documents/generate" element={<DocumentGenerator />} />

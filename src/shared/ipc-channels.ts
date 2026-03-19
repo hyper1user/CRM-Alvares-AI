@@ -85,13 +85,25 @@ export const IPC = {
   IMPORT_EJOOS_PREVIEW: 'import:ejoos-preview',
   IMPORT_EJOOS_CONFIRM: 'import:ejoos-confirm',
   IMPORT_DATA: 'import:data',
+  IMPORT_IMPULSE: 'import:impulse',
   EXPORT_EJOOS: 'export:ejoos',
   EXPORT_CSV: 'export:csv',
+
+  // Staff Roster (Штатний розпис)
+  STAFF_ROSTER: 'staff:roster',
 
   // Statistics
   STATISTICS_SUMMARY: 'statistics:summary',
   STATISTICS_BY_STATUS: 'statistics:by-status',
-  STATISTICS_BY_SUBDIVISION: 'statistics:by-subdivision'
+  STATISTICS_BY_SUBDIVISION: 'statistics:by-subdivision',
+
+  // Docs (local filesystem documents & photos)
+  DOCS_GET_ROOT: 'docs:get-root',
+  DOCS_SET_ROOT: 'docs:set-root',
+  DOCS_BROWSE_ROOT: 'docs:browse-root',
+  DOCS_SCAN_PERSON: 'docs:scan-person',
+  DOCS_OPEN_FILE: 'docs:open-file',
+  DOCS_MISSING_REPORT: 'docs:missing-report'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

@@ -52,7 +52,21 @@ export default function OrgStructure(): JSX.Element {
     selectedSubId ? { subdivisionId: selectedSubId } : {}
   )
 
-  // Summary totals across all nodes
+  // Знайти вузол Г-3 (наш підрозділ) та показати лише його
+  const filteredTree = useMemo(() => {
+    const findByCode = (nodes: SubdivisionTreeNode[], code: string): SubdivisionTreeNode | null => {
+      for (const n of nodes) {
+        if (n.code === code) return n
+        const found = findByCode(n.children, code)
+        if (found) return found
+      }
+      return null
+    }
+    const g3 = findByCode(treeData, 'Г-3')
+    return g3 ? [g3] : treeData
+  }, [treeData])
+
+  // Summary totals лише по Г-3 та її дочірніх
   const allNodes = useMemo(() => {
     const flat: SubdivisionTreeNode[] = []
     const traverse = (nodes: SubdivisionTreeNode[]) => {
@@ -61,16 +75,16 @@ export default function OrgStructure(): JSX.Element {
         traverse(n.children)
       }
     }
-    traverse(treeData)
+    traverse(filteredTree)
     return flat
-  }, [treeData])
+  }, [filteredTree])
 
   const totalPersonnel = allNodes.reduce((s, n) => s + n.personnelCount, 0)
   const totalPositions = allNodes.reduce((s, n) => s + n.positionCount, 0)
   const totalVacant = allNodes.reduce((s, n) => s + n.vacantCount, 0)
   const fillPercent = totalPositions > 0 ? Math.round(((totalPositions - totalVacant) / totalPositions) * 100) : 0
 
-  const antTreeData = useMemo(() => toTreeData(treeData), [treeData])
+  const antTreeData = useMemo(() => toTreeData(filteredTree), [filteredTree])
 
   const handleSelect = (keys: React.Key[]) => {
     const key = keys[0]
@@ -120,7 +134,7 @@ export default function OrgStructure(): JSX.Element {
             <Space>
               <ApartmentOutlined style={{ fontSize: 18 }} />
               <Title level={5} style={{ margin: 0 }}>
-                12 ОШР "Хижаки"
+                12 штурмова рота
               </Title>
             </Space>
             <Space size="large">

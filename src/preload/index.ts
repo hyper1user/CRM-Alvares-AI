@@ -99,6 +99,7 @@ const api = {
   importEjoosPreview: (filePath: string) => ipcRenderer.invoke(IPC.IMPORT_EJOOS_PREVIEW, filePath),
   importEjoosConfirm: (filePath: string) => ipcRenderer.invoke(IPC.IMPORT_EJOOS_CONFIRM, filePath),
   importData: (filePath: string) => ipcRenderer.invoke(IPC.IMPORT_DATA, filePath),
+  importImpulse: (filePath: string) => ipcRenderer.invoke(IPC.IMPORT_IMPULSE, filePath),
 
   // Export
   exportEjoos: () => ipcRenderer.invoke(IPC.EXPORT_EJOOS),
@@ -139,10 +140,35 @@ const api = {
   leaveDelete: (id: number) => ipcRenderer.invoke(IPC.LEAVE_DELETE, id),
   leaveGenerateTicket: (id: number) => ipcRenderer.invoke(IPC.LEAVE_GENERATE_TICKET, id),
 
+  // Staff Roster
+  staffRoster: () => ipcRenderer.invoke(IPC.STAFF_ROSTER),
+
   // Statistics
   statisticsSummary: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_SUMMARY, subdivision),
   statisticsByStatus: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS, subdivision),
-  statisticsBySubdivision: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_SUBDIVISION, subdivision)
+  statisticsBySubdivision: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_SUBDIVISION, subdivision),
+
+  // Updater
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterGetStatus: () => ipcRenderer.invoke('updater:get-status'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  updaterOnStatus: (cb: (status: unknown) => void) => {
+    ipcRenderer.on('updater:status', (_e, status) => cb(status))
+    return () => ipcRenderer.removeAllListeners('updater:status')
+  },
+
+  // Docs
+  docsGetRoot: (): Promise<string | null> => ipcRenderer.invoke(IPC.DOCS_GET_ROOT),
+  docsSetRoot: (rootPath: string) => ipcRenderer.invoke(IPC.DOCS_SET_ROOT, rootPath),
+  docsBrowseRoot: (): Promise<string | null> => ipcRenderer.invoke(IPC.DOCS_BROWSE_ROOT),
+  docsScanPerson: (fullName: string): Promise<{
+    files: { name: string; path: string; ext: string; category: string; isPhoto: boolean }[]
+    photoPath: string | null
+    folderPath: string | null
+  }> => ipcRenderer.invoke(IPC.DOCS_SCAN_PERSON, fullName),
+  docsOpenFile: (filePath: string) => ipcRenderer.invoke(IPC.DOCS_OPEN_FILE, filePath),
+  docsMissingReport: (): Promise<{ id: number; fullName: string; subdivision: string | null; missingDocs: string[] }[]> =>
+    ipcRenderer.invoke(IPC.DOCS_MISSING_REPORT)
 }
 
 export type ApiType = typeof api

@@ -1,65 +1,115 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, dialog } from 'electron'
+import { BrowserWindow, dialog, ipcMain } from 'electron'
+
+export type UpdaterStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'up-to-date'; currentVersion: string }
+  | { state: 'available'; version: string }
+  | { state: 'downloading'; percent: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string }
+
+let currentStatus: UpdaterStatus = { state: 'idle' }
+
+function broadcast(status: UpdaterStatus): void {
+  currentStatus = status
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('updater:status', status)
+  }
+}
+
+export function getUpdaterStatus(): UpdaterStatus {
+  return currentStatus
+}
 
 export function initAutoUpdater(): void {
-  // Don't check for updates in dev mode
   if (process.env.NODE_ENV === 'development') return
-
-  // GitHub PAT (read-only, Contents permission) for private repo access
-  process.env.GH_TOKEN = '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'
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
-
-  // Security: only use HTTPS
   autoUpdater.forceDevUpdateConfig = false
 
+  autoUpdater.on('checking-for-update', () => {
+    broadcast({ state: 'checking' })
+  })
+
   autoUpdater.on('update-available', (info) => {
+    broadcast({ state: 'available', version: info.version })
+
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return
-
     dialog
       .showMessageBox(win, {
         type: 'info',
         title: 'Оновлення доступне',
-        message: `Доступна нова версія ${info.version}.\nВстановити зараз?`,
-        buttons: ['Оновити', 'Пізніше'],
+        message: `Доступна нова версія ${info.version}.\nЗавантажити зараз?`,
+        buttons: ['Завантажити', 'Пізніше'],
         defaultId: 0,
         cancelId: 1
       })
       .then(({ response }) => {
         if (response === 0) {
           autoUpdater.downloadUpdate()
+          broadcast({ state: 'downloading', percent: 0 })
         }
       })
   })
 
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-not-available', (info) => {
+    broadcast({ state: 'up-to-date', currentVersion: info.version })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    broadcast({ state: 'downloading', percent: Math.round(progress.percent) })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    broadcast({ state: 'downloaded', version: info.version })
+
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return
-
     dialog
       .showMessageBox(win, {
         type: 'info',
         title: 'Оновлення завантажено',
-        message: 'Оновлення завантажено. Додаток перезапуститься для встановлення.',
+        message: `Версія ${info.version} завантажена. Перезапустити зараз?`,
         buttons: ['Перезапустити', 'Пізніше']
       })
       .then(({ response }) => {
-        if (response === 0) {
-          autoUpdater.quitAndInstall()
-        }
+        if (response === 0) autoUpdater.quitAndInstall()
       })
   })
 
   autoUpdater.on('error', (err) => {
-    console.error('[updater] Error:', err.message)
+    const msg = err.message ?? String(err)
+    console.error('[updater] Error:', msg)
+    broadcast({ state: 'error', message: msg })
   })
 
-  // Check for updates 5 seconds after app start
+  // IPC: manual check from renderer
+  ipcMain.handle('updater:check', async () => {
+    try {
+      broadcast({ state: 'checking' })
+      await autoUpdater.checkForUpdates()
+    } catch (err) {
+      const msg = String(err)
+      broadcast({ state: 'error', message: msg })
+    }
+  })
+
+  // IPC: get current status
+  ipcMain.handle('updater:get-status', () => currentStatus)
+
+  // IPC: install downloaded update
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall()
+  })
+
+  // Auto-check 5s after start
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.error('[updater] Check failed:', err.message)
+      broadcast({ state: 'error', message: String(err) })
     })
   }, 5000)
 }

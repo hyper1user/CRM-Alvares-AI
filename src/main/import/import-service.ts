@@ -16,7 +16,8 @@ import {
   auditLog
 } from '../db/schema'
 import { eq, sql } from 'drizzle-orm'
-import type { ParseResult, ImportResult, DataImportResult, ParsedDataRecord } from '@shared/types/import'
+import type { ParseResult, ImportResult, DataImportResult, ParsedDataRecord, ImpulseImportResult } from '@shared/types/import'
+import type { ParsedImpulseRecord } from './impulse-parser'
 
 // ==================== LOOKUP BUILDERS ====================
 
@@ -290,6 +291,127 @@ export function importEjoos(parsed: ParseResult): ImportResult {
       imported: { positions: 0, personnel: 0, movements: 0, statuses: 0 },
       errors: [`Критична помилка імпорту: ${String(e)}`]
     }
+  }
+}
+
+// ==================== IMPORT DATA.XLSX ====================
+
+// ==================== IMPORT IMPULSE ====================
+
+export function importImpulse(records: ParsedImpulseRecord[]): ImpulseImportResult {
+  const db = getDatabase()
+  const maps = buildLookupMaps()
+  const errors: string[] = []
+  let updated = 0
+  let skipped = 0
+
+  try {
+    db.run(sql`BEGIN TRANSACTION`)
+
+    for (const rec of records) {
+      // Find personnel by IPN
+      const person = db
+        .select({ id: personnel.id })
+        .from(personnel)
+        .where(eq(personnel.ipn, rec.ipn))
+        .get()
+
+      if (!person) {
+        skipped++
+        continue
+      }
+
+      const bloodTypeId = fuzzyLookup(maps.bloodTypeNameToId, rec.bloodTypeName)
+
+      const updates: Record<string, unknown> = {}
+
+      // Only update non-null fields
+      if (rec.passportIssuedBy) updates.passportIssuedBy = rec.passportIssuedBy
+      if (rec.passportIssuedDate) updates.passportIssuedDate = rec.passportIssuedDate
+      if (rec.passportSeries) updates.passportSeries = rec.passportSeries
+      if (rec.passportNumber) updates.passportNumber = rec.passportNumber
+
+      if (rec.foreignPassportSeries) updates.foreignPassportSeries = rec.foreignPassportSeries
+      if (rec.foreignPassportNumber) updates.foreignPassportNumber = rec.foreignPassportNumber
+      if (rec.foreignPassportIssuedBy) updates.foreignPassportIssuedBy = rec.foreignPassportIssuedBy
+      if (rec.foreignPassportIssuedDate) updates.foreignPassportIssuedDate = rec.foreignPassportIssuedDate
+
+      if (rec.specialtyCode) updates.specialtyCode = rec.specialtyCode
+      if (rec.militaryIdIssuedBy) updates.militaryIdIssuedBy = rec.militaryIdIssuedBy
+      if (rec.militaryIdIssuedDate) updates.militaryIdIssuedDate = rec.militaryIdIssuedDate
+      if (rec.militaryIdSeries) updates.militaryIdSeries = rec.militaryIdSeries
+      if (rec.militaryIdNumber) updates.militaryIdNumber = rec.militaryIdNumber
+
+      if (rec.ubdIssuedBy) updates.ubdIssuedBy = rec.ubdIssuedBy
+      if (rec.ubdDate) updates.ubdDate = rec.ubdDate
+      if (rec.ubdSeries) updates.ubdSeries = rec.ubdSeries
+      if (rec.ubdNumber) updates.ubdNumber = rec.ubdNumber
+
+      if (rec.iban) updates.iban = rec.iban
+      if (rec.bankCard) updates.bankCard = rec.bankCard
+      if (rec.bankName) updates.bankName = rec.bankName
+
+      if (rec.driverLicenseIssuedBy) updates.driverLicenseIssuedBy = rec.driverLicenseIssuedBy
+      if (rec.driverLicenseCategory) updates.driverLicenseCategory = rec.driverLicenseCategory
+      if (rec.driverLicenseExpiry) updates.driverLicenseExpiry = rec.driverLicenseExpiry
+      if (rec.driverLicenseIssuedDate) updates.driverLicenseIssuedDate = rec.driverLicenseIssuedDate
+      if (rec.driverLicenseExperience !== null) updates.driverLicenseExperience = rec.driverLicenseExperience
+      if (rec.driverLicenseSeries) updates.driverLicenseSeries = rec.driverLicenseSeries
+      if (rec.driverLicenseNumber) updates.driverLicenseNumber = rec.driverLicenseNumber
+
+      if (rec.tractorLicenseIssuedBy) updates.tractorLicenseIssuedBy = rec.tractorLicenseIssuedBy
+      if (rec.tractorLicenseCategory) updates.tractorLicenseCategory = rec.tractorLicenseCategory
+      if (rec.tractorLicenseExpiry) updates.tractorLicenseExpiry = rec.tractorLicenseExpiry
+      if (rec.tractorLicenseIssuedDate) updates.tractorLicenseIssuedDate = rec.tractorLicenseIssuedDate
+      if (rec.tractorLicenseExperience !== null) updates.tractorLicenseExperience = rec.tractorLicenseExperience
+      if (rec.tractorLicenseSeries) updates.tractorLicenseSeries = rec.tractorLicenseSeries
+      if (rec.tractorLicenseNumber) updates.tractorLicenseNumber = rec.tractorLicenseNumber
+
+      if (rec.basicTrainingDateFrom) updates.basicTrainingDateFrom = rec.basicTrainingDateFrom
+      if (rec.basicTrainingDateTo) updates.basicTrainingDateTo = rec.basicTrainingDateTo
+      if (rec.basicTrainingPlace) updates.basicTrainingPlace = rec.basicTrainingPlace
+      if (rec.basicTrainingCommander) updates.basicTrainingCommander = rec.basicTrainingCommander
+      if (rec.basicTrainingNotes) updates.basicTrainingNotes = rec.basicTrainingNotes
+
+      if (bloodTypeId) updates.bloodTypeId = bloodTypeId
+
+      if (Object.keys(updates).length === 0) {
+        skipped++
+        continue
+      }
+
+      updates.updatedAt = sql`datetime('now')`
+
+      try {
+        db.update(personnel)
+          .set(updates as Partial<typeof personnel.$inferInsert>)
+          .where(eq(personnel.id, person.id))
+          .run()
+        updated++
+      } catch (e) {
+        errors.push(`Імпульс ІПН ${rec.ipn}: ${String(e)}`)
+      }
+    }
+
+    db.insert(auditLog)
+      .values({
+        tableName: 'import',
+        recordId: 0,
+        action: 'import_impulse',
+        newValues: JSON.stringify({ updated, skipped, errors: errors.length })
+      })
+      .run()
+
+    db.run(sql`COMMIT`)
+
+    return { success: true, updated, skipped, errors }
+  } catch (e) {
+    try {
+      db.run(sql`ROLLBACK`)
+    } catch {
+      // Ignore rollback errors
+    }
+    return { success: false, updated: 0, skipped: 0, errors: [`Критична помилка: ${String(e)}`] }
   }
 }
 

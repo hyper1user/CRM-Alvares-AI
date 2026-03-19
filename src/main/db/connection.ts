@@ -445,4 +445,49 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   `)
 
   console.log('[db] Таблиці та індекси створено')
+
+  // Migrate: add new columns if they don't exist
+  const newColumns: [string, string][] = [
+    ['foreign_passport_series', 'TEXT'],
+    ['foreign_passport_number', 'TEXT'],
+    ['foreign_passport_issued_by', 'TEXT'],
+    ['foreign_passport_issued_date', 'TEXT'],
+    ['military_id_issued_by', 'TEXT'],
+    ['military_id_issued_date', 'TEXT'],
+    ['ubd_issued_by', 'TEXT'],
+    ['iban', 'TEXT'],
+    ['bank_card', 'TEXT'],
+    ['bank_name', 'TEXT'],
+    ['driver_license_issued_by', 'TEXT'],
+    ['driver_license_category', 'TEXT'],
+    ['driver_license_expiry', 'TEXT'],
+    ['driver_license_issued_date', 'TEXT'],
+    ['driver_license_experience', 'INTEGER'],
+    ['driver_license_series', 'TEXT'],
+    ['driver_license_number', 'TEXT'],
+    ['tractor_license_issued_by', 'TEXT'],
+    ['tractor_license_category', 'TEXT'],
+    ['tractor_license_expiry', 'TEXT'],
+    ['tractor_license_issued_date', 'TEXT'],
+    ['tractor_license_experience', 'INTEGER'],
+    ['tractor_license_series', 'TEXT'],
+    ['tractor_license_number', 'TEXT'],
+    ['basic_training_date_from', 'TEXT'],
+    ['basic_training_date_to', 'TEXT'],
+    ['basic_training_place', 'TEXT'],
+    ['basic_training_commander', 'TEXT'],
+    ['basic_training_notes', 'TEXT']
+  ]
+
+  const existingCols = sqliteDb
+    .prepare('PRAGMA table_info(personnel)')
+    .all() as { name: string }[]
+  const existingColNames = new Set(existingCols.map((c) => c.name))
+
+  for (const [col, type] of newColumns) {
+    if (!existingColNames.has(col)) {
+      sqliteDb.exec(`ALTER TABLE personnel ADD COLUMN ${col} ${type}`)
+      console.log(`[db] Додано колонку: personnel.${col}`)
+    }
+  }
 }

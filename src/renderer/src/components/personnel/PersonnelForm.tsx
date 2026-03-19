@@ -48,7 +48,15 @@ export default function PersonnelForm({ open, onClose, onSaved, editRecord }: Pe
         'rankOrderDate',
         'passportIssuedDate',
         'ubdDate',
-        'conscriptionDate'
+        'conscriptionDate',
+        'foreignPassportIssuedDate',
+        'militaryIdIssuedDate',
+        'driverLicenseExpiry',
+        'driverLicenseIssuedDate',
+        'tractorLicenseExpiry',
+        'tractorLicenseIssuedDate',
+        'basicTrainingDateFrom',
+        'basicTrainingDateTo'
       ]
       for (const field of dateFields) {
         const val = values[field]
@@ -57,6 +65,7 @@ export default function PersonnelForm({ open, onClose, onSaved, editRecord }: Pe
       form.setFieldsValue(values)
     } else {
       form.resetFields()
+      form.setFieldValue('currentSubdivision', 'Г-3')
     }
   }, [open, editRecord, form])
 
@@ -473,6 +482,170 @@ export default function PersonnelForm({ open, onClose, onSaved, editRecord }: Pe
           <Col span={24}>
             <Form.Item name="notes" label="Примітки">
               <Input.TextArea rows={2} />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* === Додаткові документи === */}
+        <Divider orientation="left">Додаткові документи</Divider>
+
+        {/* Закордонний паспорт */}
+        <Divider orientation="left" plain style={{ fontSize: 13, color: '#8c8c8c' }}>Закордонний паспорт</Divider>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Form.Item name="foreignPassportSeries" label="Серія">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="foreignPassportNumber" label="Номер">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="foreignPassportIssuedBy" label="Ким виданий">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="foreignPassportIssuedDate" label="Дата видачі">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* Фінансові дані */}
+        <Divider orientation="left" plain style={{ fontSize: 13, color: '#8c8c8c' }}>Фінансові дані</Divider>
+        <Row gutter={16}>
+          <Col span={10}>
+            <Form.Item name="iban" label="IBAN">
+              <Input placeholder="UA..." />
+            </Form.Item>
+          </Col>
+          <Col span={7}>
+            <Form.Item name="bankCard" label="Номер картки">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={7}>
+            <Form.Item name="bankName" label="Банк">
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* Посвідчення водія */}
+        <Divider orientation="left" plain style={{ fontSize: 13, color: '#8c8c8c' }}>Посвідчення водія</Divider>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Form.Item name="driverLicenseCategory" label="Категорія">
+              <Input placeholder="B, C, D..." />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="driverLicenseSeries" label="Серія">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="driverLicenseNumber" label="Номер">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="driverLicenseExperience" label="Стаж (років)">
+              <Input type="number" min={0} />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="driverLicenseIssuedBy" label="Ким виданий">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="driverLicenseIssuedDate" label="Дата видачі">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="driverLicenseExpiry" label="Дійсне до">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* Посвідчення тракториста */}
+        <Divider orientation="left" plain style={{ fontSize: 13, color: '#8c8c8c' }}>Посвідчення тракториста</Divider>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Form.Item name="tractorLicenseCategory" label="Категорія">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="tractorLicenseSeries" label="Серія">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="tractorLicenseNumber" label="Номер">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item name="tractorLicenseExperience" label="Стаж (років)">
+              <Input type="number" min={0} />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="tractorLicenseIssuedBy" label="Ким виданий">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="tractorLicenseIssuedDate" label="Дата видачі">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="tractorLicenseExpiry" label="Дійсне до">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* Базова загальновійськова підготовка */}
+        <Divider orientation="left" plain style={{ fontSize: 13, color: '#8c8c8c' }}>Базова загальновійськова підготовка</Divider>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="basicTrainingDateFrom" label="Дата початку">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="basicTrainingDateTo" label="Дата закінчення">
+              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="basicTrainingCommander" label="Командир">
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item name="basicTrainingPlace" label="Місце проходження">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="basicTrainingNotes" label="Примітки">
+              <Input />
             </Form.Item>
           </Col>
         </Row>

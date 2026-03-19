@@ -170,3 +170,11 @@ export interface DataImportResult {
   skipped: number
   errors: string[]
 }
+
+/** Result of Impulse import */
+export interface ImpulseImportResult {
+  success: boolean
+  updated: number
+  skipped: number
+  errors: string[]
+}

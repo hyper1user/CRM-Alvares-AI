@@ -1,4 +1,6 @@
-import { ipcMain, dialog, BrowserWindow, app } from 'electron'
+import { ipcMain, dialog, BrowserWindow, app, shell } from 'electron'
+import { readdirSync, statSync } from 'fs'
+import { join, extname, basename } from 'path'
 import { getDatabase } from '../db/connection'
 import { IPC } from '@shared/ipc-channels'
 import {
@@ -24,7 +26,8 @@ import { eq, and, like, or, asc, desc, sql, gte, lte } from 'drizzle-orm'
 import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema } from '@shared/validators'
 import { parseEjoosFile } from '../import/ejoos-parser'
 import { parseDataFile } from '../import/data-parser'
-import { importEjoos, importData } from '../import/import-service'
+import { importEjoos, importData, importImpulse } from '../import/import-service'
+import { parseImpulseFile } from '../import/impulse-parser'
 import { exportEjoos, exportCsv } from '../export/export-service'
 import {
   seedDefaultTemplates,
@@ -773,6 +776,23 @@ export function registerIpcHandlers(): void {
         },
         // Also run import immediately
         result: importData(parsed.records)
+      }
+    } catch (error) {
+      return {
+        preview: null,
+        result: { success: false, updated: 0, skipped: 0, errors: [String(error)] }
+      }
+    }
+  })
+
+  // Impulse Toolkit import
+  ipcMain.handle(IPC.IMPORT_IMPULSE, (_event, filePath: string) => {
+    try {
+      const parsed = parseImpulseFile(filePath)
+      const result = importImpulse(parsed.records)
+      return {
+        preview: { total: parsed.total, parseErrors: parsed.errors },
+        result
       }
     } catch (error) {
       return {
@@ -2059,5 +2079,383 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // ==================== DOCS ====================
+
+  // Get configured docs root path
+  ipcMain.handle(IPC.DOCS_GET_ROOT, () => {
+    const db = getDatabase()
+    const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
+    return row?.value ?? null
+  })
+
+  // Save docs root path
+  ipcMain.handle(IPC.DOCS_SET_ROOT, (_event, rootPath: string) => {
+    const db = getDatabase()
+    db.insert(settings).values({ key: 'docsRootPath', value: rootPath })
+      .onConflictDoUpdate({ target: settings.key, set: { value: rootPath } })
+      .run()
+    return { ok: true }
+  })
+
+  // Open folder picker dialog
+  ipcMain.handle(IPC.DOCS_BROWSE_ROOT, async () => {
+    const win = BrowserWindow.getFocusedWindow()
+    const result = await dialog.showOpenDialog(win!, {
+      properties: ['openDirectory'],
+      title: 'Оберіть папку документів ОС'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  // Scan files for a person by fullName
+  ipcMain.handle(IPC.DOCS_SCAN_PERSON, (_event, fullName: string) => {
+    const db = getDatabase()
+    const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
+    const rootPath = row?.value
+    if (!rootPath) return { files: [], photoPath: null, folderPath: null }
+
+    const normalize = (s: string) => s.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const targetName = normalize(fullName)
+
+    // Scan 2 levels: rootPath/GROUP/PERSON_FOLDER
+    let personFolder: string | null = null
+    try {
+      for (const group of readdirSync(rootPath)) {
+        if (group === 'desktop.ini') continue
+        const groupPath = join(rootPath, group)
+        try {
+          if (!statSync(groupPath).isDirectory()) continue
+          for (const folder of readdirSync(groupPath)) {
+            if (folder === 'desktop.ini') continue
+            if (normalize(folder) === targetName) {
+              personFolder = join(groupPath, folder)
+              break
+            }
+          }
+        } catch { /* skip unreadable */ }
+        if (personFolder) break
+      }
+    } catch { /* rootPath unreadable */ }
+
+    if (!personFolder) return { files: [], photoPath: null, folderPath: null }
+
+    const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp'])
+    const DOC_KEYWORDS = ['паспорт', 'квиток', 'убд', 'іпн', 'автобіог', 'контракт', 'наказ', 'id карт', 'id-карт']
+
+    interface DocFile {
+      name: string
+      path: string
+      ext: string
+      category: string
+      isPhoto: boolean
+    }
+
+    const files: DocFile[] = []
+    let photoPath: string | null = null
+
+    try {
+      for (const file of readdirSync(personFolder)) {
+        if (file === 'desktop.ini') continue
+        const filePath = join(personFolder, file)
+        try {
+          if (!statSync(filePath).isFile()) continue
+        } catch { continue }
+
+        const ext = extname(file).toLowerCase()
+        const nameLower = basename(file, ext).toLowerCase()
+        const isImage = IMAGE_EXTS.has(ext)
+
+        let isPhoto = false
+        let category = 'Інше'
+
+        if (isImage) {
+          // Photo if no doc keywords and no " - " separator (doc scan naming pattern)
+          const isDocScan = DOC_KEYWORDS.some(kw => nameLower.includes(kw)) || nameLower.includes(' - ')
+          if (!isDocScan) {
+            isPhoto = true
+            category = 'Фото'
+            if (!photoPath) photoPath = filePath
+          } else {
+            category = categorizeDoc(nameLower)
+          }
+        } else {
+          category = categorizeDoc(nameLower)
+        }
+
+        files.push({ name: file, path: filePath, ext, category, isPhoto })
+      }
+    } catch { /* unreadable */ }
+
+    // Sort: photos first, then by category
+    files.sort((a, b) => {
+      if (a.isPhoto && !b.isPhoto) return -1
+      if (!a.isPhoto && b.isPhoto) return 1
+      return a.category.localeCompare(b.category, 'uk')
+    })
+
+    return { files, photoPath, folderPath: personFolder }
+  })
+
+  // Open file with system default app
+  ipcMain.handle(IPC.DOCS_OPEN_FILE, (_event, filePath: string) => {
+    shell.openPath(filePath)
+  })
+
+  // Missing documents report: scan all active personnel folders and return who is missing required docs
+  ipcMain.handle(IPC.DOCS_MISSING_REPORT, () => {
+    const db = getDatabase()
+    const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
+    const rootPath = row?.value
+    if (!rootPath) return []
+
+    const allPersonnel = db
+      .select({ id: personnel.id, fullName: personnel.fullName, currentSubdivision: personnel.currentSubdivision })
+      .from(personnel)
+      .where(sql`${personnel.status} != 'excluded'`)
+      .orderBy(asc(personnel.fullName))
+      .all()
+
+    const normalize = (s: string) => s.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp'])
+    const DOC_KEYWORDS = ['паспорт', 'квиток', 'убд', 'іпн', 'автобіог', 'контракт', 'наказ', 'id карт', 'id-карт']
+
+    // Build index: normalized folder name → folder path
+    const folderIndex = new Map<string, string>()
+    try {
+      for (const group of readdirSync(rootPath)) {
+        if (group === 'desktop.ini') continue
+        const groupPath = join(rootPath, group)
+        try {
+          if (!statSync(groupPath).isDirectory()) continue
+          for (const folder of readdirSync(groupPath)) {
+            if (folder === 'desktop.ini') continue
+            try { if (!statSync(join(groupPath, folder)).isDirectory()) continue } catch { continue }
+            folderIndex.set(normalize(folder), join(groupPath, folder))
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* rootPath unreadable */ }
+
+    const results: { id: number; fullName: string; subdivision: string | null; missingDocs: string[] }[] = []
+
+    for (const person of allPersonnel) {
+      const personFolder = folderIndex.get(normalize(person.fullName)) ?? null
+
+      const categories = new Set<string>()
+      if (personFolder) {
+        try {
+          for (const file of readdirSync(personFolder)) {
+            if (file === 'desktop.ini') continue
+            const filePath = join(personFolder, file)
+            try { if (!statSync(filePath).isFile()) continue } catch { continue }
+            const ext = extname(file).toLowerCase()
+            const nameLower = basename(file, ext).toLowerCase()
+            const isImage = IMAGE_EXTS.has(ext)
+            if (isImage) {
+              const isDocScan = DOC_KEYWORDS.some(kw => nameLower.includes(kw)) || nameLower.includes(' - ')
+              if (isDocScan) categories.add(categorizeDoc(nameLower))
+            } else {
+              categories.add(categorizeDoc(nameLower))
+            }
+          }
+        } catch { /* skip */ }
+      }
+
+      const hasPassport = categories.has('Паспорт')
+      const hasIdCard = categories.has('ID-картка')
+      const hasVK = categories.has('Військовий квиток')
+      const hasIPN = categories.has('ІПН')
+
+      const missingDocs: string[] = []
+      if (!hasVK) missingDocs.push('Військовий квиток')
+      if (!hasPassport && !hasIdCard) missingDocs.push('Паспорт або ID-картка')
+      if (hasPassport && !hasIdCard && !hasIPN) missingDocs.push('ІПН')
+
+      if (missingDocs.length > 0) {
+        results.push({ id: person.id, fullName: person.fullName, subdivision: person.currentSubdivision, missingDocs })
+      }
+    }
+
+    return results
+  })
+
+  // ==================== STAFF ROSTER ====================
+  ipcMain.handle(IPC.STAFF_ROSTER, () => {
+    const db = getDatabase()
+
+    // All active positions with subdivision info, ordered by positionIndex
+    const allPos = db
+      .select({
+        id: positions.id,
+        positionIndex: positions.positionIndex,
+        subdivisionId: positions.subdivisionId,
+        title: positions.title,
+        detail: positions.detail,
+        rankRequired: positions.rankRequired,
+        isActive: positions.isActive,
+        subdivisionCode: subdivisions.code,
+        subdivisionName: subdivisions.name,
+        subdivisionSortOrder: subdivisions.sortOrder,
+        subdivisionParentId: subdivisions.parentId
+      })
+      .from(positions)
+      .leftJoin(subdivisions, eq(positions.subdivisionId, subdivisions.id))
+      .where(eq(positions.isActive, true))
+      .orderBy(asc(positions.positionIndex))
+      .all()
+
+    // All active personnel with full details
+    const activePersonnel = db
+      .select({
+        id: personnel.id,
+        lastName: personnel.lastName,
+        firstName: personnel.firstName,
+        patronymic: personnel.patronymic,
+        fullName: personnel.fullName,
+        callsign: personnel.callsign,
+        ipn: personnel.ipn,
+        dateOfBirth: personnel.dateOfBirth,
+        currentPositionIdx: personnel.currentPositionIdx,
+        currentStatusCode: personnel.currentStatusCode,
+        currentSubdivision: personnel.currentSubdivision,
+        rankName: ranks.name,
+        rankCategory: ranks.category,
+        fitness: personnel.fitness,
+        notes: personnel.notes
+      })
+      .from(personnel)
+      .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+      .where(eq(personnel.status, 'active'))
+      .all()
+
+    // Get latest status history for each person (isLast = true)
+    const lastStatuses = db
+      .select({
+        personnelId: statusHistory.personnelId,
+        statusCode: statusHistory.statusCode,
+        presenceGroup: statusHistory.presenceGroup,
+        dateFrom: statusHistory.dateFrom,
+        dateTo: statusHistory.dateTo,
+        comment: statusHistory.comment
+      })
+      .from(statusHistory)
+      .where(and(eq(statusHistory.isLast, true), eq(statusHistory.isActive, true)))
+      .all()
+
+    const statusMap = new Map<number, typeof lastStatuses[0]>()
+    for (const s of lastStatuses) {
+      statusMap.set(s.personnelId, s)
+    }
+
+    // Get status types for name mapping
+    const stTypes = db.select().from(statusTypes).all()
+    const stNameMap = new Map(stTypes.map((s) => [s.code, s]))
+
+    // Map personnel to positions
+    const personnelByPos = new Map<string, typeof activePersonnel[0]>()
+    for (const p of activePersonnel) {
+      if (p.currentPositionIdx) {
+        personnelByPos.set(p.currentPositionIdx, p)
+      }
+    }
+
+    // Get all subdivisions for tree ordering
+    const allSubs = db
+      .select()
+      .from(subdivisions)
+      .where(eq(subdivisions.isActive, true))
+      .orderBy(asc(subdivisions.sortOrder))
+      .all()
+
+    // Build subdivision order map
+    const subOrderMap = new Map(allSubs.map((s) => [s.id, s]))
+
+    // Enrich positions with personnel data
+    const rows = allPos.map((pos) => {
+      const person = personnelByPos.get(pos.positionIndex)
+      const lastStatus = person ? statusMap.get(person.id) : null
+      const stType = person?.currentStatusCode ? stNameMap.get(person.currentStatusCode) : null
+
+      return {
+        positionIndex: pos.positionIndex,
+        positionTitle: pos.title,
+        positionDetail: pos.detail,
+        subdivisionId: pos.subdivisionId,
+        subdivisionCode: pos.subdivisionCode,
+        subdivisionName: pos.subdivisionName,
+        subdivisionSortOrder: pos.subdivisionSortOrder ?? 0,
+        subdivisionParentId: pos.subdivisionParentId,
+        // Person data
+        personnelId: person?.id ?? null,
+        lastName: person?.lastName ?? null,
+        firstName: person?.firstName ?? null,
+        patronymic: person?.patronymic ?? null,
+        callsign: person?.callsign ?? null,
+        rankName: person?.rankName ?? null,
+        ipn: person?.ipn ?? null,
+        dateOfBirth: person?.dateOfBirth ?? null,
+        currentStatusCode: person?.currentStatusCode ?? null,
+        statusName: stType?.name ?? null,
+        statusGroupName: stType?.groupName ?? null,
+        fitness: person?.fitness ?? null,
+        // Status history for remarks
+        statusDateFrom: lastStatus?.dateFrom ?? null,
+        statusDateTo: lastStatus?.dateTo ?? null,
+        statusComment: lastStatus?.comment ?? null,
+        statusPresenceGroup: lastStatus?.presenceGroup ?? null
+      }
+    })
+
+    // Summary stats
+    const totalPositions = allPos.length
+    const totalPersonnel = activePersonnel.length
+    const onPositions = activePersonnel.filter((p) => p.currentPositionIdx).length
+
+    // Count by status
+    const statusCounts: Record<string, number> = {}
+    for (const p of activePersonnel) {
+      if (p.currentStatusCode) {
+        statusCounts[p.currentStatusCode] = (statusCounts[p.currentStatusCode] ?? 0) + 1
+      }
+    }
+
+    // Count by presence group
+    const presentGroup = stTypes.filter((s) => s.groupName === 'Так').map((s) => s.code)
+    const present = activePersonnel.filter(
+      (p) => p.currentStatusCode && presentGroup.includes(p.currentStatusCode)
+    ).length
+
+    // Count limited fitness
+    const limitedFitness = activePersonnel.filter(
+      (p) => p.fitness && p.fitness.toLowerCase().includes('обмежено')
+    ).length
+
+    return {
+      rows,
+      summary: {
+        totalPositions,
+        totalPersonnel,
+        onPositions,
+        present,
+        statusCounts,
+        limitedFitness
+      },
+      statusTypes: stTypes.map((s) => ({ code: s.code, name: s.name, groupName: s.groupName }))
+    }
+  })
+
   console.log('[ipc] Обробники зареєстровано')
+}
+
+function categorizeDoc(nameLower: string): string {
+  if (nameLower.includes('паспорт')) return 'Паспорт'
+  if (nameLower.includes('квиток')) return 'Військовий квиток'
+  if (nameLower.includes('убд')) return 'УБД'
+  if (nameLower.includes('іпн') || nameLower.includes('ipn')) return 'ІПН'
+  if (nameLower.includes('автобіог')) return 'Автобіографія'
+  if (nameLower.includes('контракт')) return 'Контракт'
+  if (nameLower.includes('id карт') || nameLower.includes('id-карт')) return 'ID-картка'
+  if (nameLower.includes('наказ')) return 'Наказ'
+  return 'Інше'
 }

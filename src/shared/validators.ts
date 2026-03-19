@@ -105,6 +105,9 @@ export const personnelCreateSchema = z.object({
   nationality: z.string().optional().or(z.literal('')),
   citizenship: z.string().optional().or(z.literal('')),
 
+  // Photo
+  photoPath: z.string().optional().or(z.literal('')),
+
   // Other
   conscriptionDate: dateSchema,
   tccId: z.number().nullable().optional(),
@@ -112,7 +115,50 @@ export const personnelCreateSchema = z.object({
   personalNumber: z.string().optional().or(z.literal('')),
   specialtyCode: z.string().optional().or(z.literal('')),
   additionalInfo: z.string().optional().or(z.literal('')),
-  notes: z.string().optional().or(z.literal(''))
+  notes: z.string().optional().or(z.literal('')),
+
+  // Закордонний паспорт
+  foreignPassportSeries: z.string().optional().or(z.literal('')),
+  foreignPassportNumber: z.string().optional().or(z.literal('')),
+  foreignPassportIssuedBy: z.string().optional().or(z.literal('')),
+  foreignPassportIssuedDate: dateSchema,
+
+  // ВК додатково
+  militaryIdIssuedBy: z.string().optional().or(z.literal('')),
+  militaryIdIssuedDate: dateSchema,
+
+  // УБД додатково
+  ubdIssuedBy: z.string().optional().or(z.literal('')),
+
+  // Фінансові дані
+  iban: z.string().optional().or(z.literal('')),
+  bankCard: z.string().optional().or(z.literal('')),
+  bankName: z.string().optional().or(z.literal('')),
+
+  // Посвідчення водія
+  driverLicenseIssuedBy: z.string().optional().or(z.literal('')),
+  driverLicenseCategory: z.string().optional().or(z.literal('')),
+  driverLicenseExpiry: dateSchema,
+  driverLicenseIssuedDate: dateSchema,
+  driverLicenseExperience: z.number().nullable().optional(),
+  driverLicenseSeries: z.string().optional().or(z.literal('')),
+  driverLicenseNumber: z.string().optional().or(z.literal('')),
+
+  // Посвідчення тракториста
+  tractorLicenseIssuedBy: z.string().optional().or(z.literal('')),
+  tractorLicenseCategory: z.string().optional().or(z.literal('')),
+  tractorLicenseExpiry: dateSchema,
+  tractorLicenseIssuedDate: dateSchema,
+  tractorLicenseExperience: z.number().nullable().optional(),
+  tractorLicenseSeries: z.string().optional().or(z.literal('')),
+  tractorLicenseNumber: z.string().optional().or(z.literal('')),
+
+  // Базова загальновійськова підготовка
+  basicTrainingDateFrom: dateSchema,
+  basicTrainingDateTo: dateSchema,
+  basicTrainingPlace: z.string().optional().or(z.literal('')),
+  basicTrainingCommander: z.string().optional().or(z.literal('')),
+  basicTrainingNotes: z.string().optional().or(z.literal(''))
 })
 
 export type PersonnelCreateInput = z.infer<typeof personnelCreateSchema>

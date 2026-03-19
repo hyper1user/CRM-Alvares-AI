@@ -1,7 +1,7 @@
 {
   "name": "ejoos-plus",
-  "version": "0.3.4",
-  "description": "ЕЖООС+ — Система обліку особового складу",
+  "version": "0.5.4",
+  "description": "АльваресAI — Система обліку особового складу",
   "main": "./out/main/index.js",
   "author": "12 ОШР",
   "homepage": "https://electron-vite.org",
@@ -40,7 +40,10 @@
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "builder-util-runtime": "^9.3.3"
+    }
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^1.0.1",

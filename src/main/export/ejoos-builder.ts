@@ -344,7 +344,7 @@ function addStatusHistorySheet(wb: ExcelJS.Workbook, data: ExportStatus[]): void
 
 export function buildEjoosWorkbook(data: ExportData): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook()
-  wb.creator = 'ЕЖООС+'
+  wb.creator = 'АльваресAI'
   wb.created = new Date()
 
   addPositionsSheet(wb, data)

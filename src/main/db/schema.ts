@@ -176,6 +176,50 @@ export const personnel = sqliteTable(
     status: text('status').default('active'),
     additionalInfo: text('additional_info'),
     notes: text('notes'),
+
+    // === Закордонний паспорт ===
+    foreignPassportSeries: text('foreign_passport_series'),
+    foreignPassportNumber: text('foreign_passport_number'),
+    foreignPassportIssuedBy: text('foreign_passport_issued_by'),
+    foreignPassportIssuedDate: text('foreign_passport_issued_date'),
+
+    // === ВК додатково ===
+    militaryIdIssuedBy: text('military_id_issued_by'),
+    militaryIdIssuedDate: text('military_id_issued_date'),
+
+    // === УБД додатково ===
+    ubdIssuedBy: text('ubd_issued_by'),
+
+    // === Фінансові дані ===
+    iban: text('iban'),
+    bankCard: text('bank_card'),
+    bankName: text('bank_name'),
+
+    // === Посвідчення водія ===
+    driverLicenseIssuedBy: text('driver_license_issued_by'),
+    driverLicenseCategory: text('driver_license_category'),
+    driverLicenseExpiry: text('driver_license_expiry'),
+    driverLicenseIssuedDate: text('driver_license_issued_date'),
+    driverLicenseExperience: integer('driver_license_experience'),
+    driverLicenseSeries: text('driver_license_series'),
+    driverLicenseNumber: text('driver_license_number'),
+
+    // === Посвідчення тракториста ===
+    tractorLicenseIssuedBy: text('tractor_license_issued_by'),
+    tractorLicenseCategory: text('tractor_license_category'),
+    tractorLicenseExpiry: text('tractor_license_expiry'),
+    tractorLicenseIssuedDate: text('tractor_license_issued_date'),
+    tractorLicenseExperience: integer('tractor_license_experience'),
+    tractorLicenseSeries: text('tractor_license_series'),
+    tractorLicenseNumber: text('tractor_license_number'),
+
+    // === Базова загальновійськова підготовка ===
+    basicTrainingDateFrom: text('basic_training_date_from'),
+    basicTrainingDateTo: text('basic_training_date_to'),
+    basicTrainingPlace: text('basic_training_place'),
+    basicTrainingCommander: text('basic_training_commander'),
+    basicTrainingNotes: text('basic_training_notes'),
+
     createdAt: text('created_at').default(sql`(datetime('now'))`),
     updatedAt: text('updated_at').default(sql`(datetime('now'))`)
   },

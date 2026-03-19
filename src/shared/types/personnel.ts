@@ -68,6 +68,50 @@ export interface Personnel {
   status: 'active' | 'excluded' | 'disposed'
   additionalInfo: string | null
   notes: string | null
+
+  // Закордонний паспорт
+  foreignPassportSeries: string | null
+  foreignPassportNumber: string | null
+  foreignPassportIssuedBy: string | null
+  foreignPassportIssuedDate: string | null
+
+  // ВК додатково
+  militaryIdIssuedBy: string | null
+  militaryIdIssuedDate: string | null
+
+  // УБД додатково
+  ubdIssuedBy: string | null
+
+  // Фінансові дані
+  iban: string | null
+  bankCard: string | null
+  bankName: string | null
+
+  // Посвідчення водія
+  driverLicenseIssuedBy: string | null
+  driverLicenseCategory: string | null
+  driverLicenseExpiry: string | null
+  driverLicenseIssuedDate: string | null
+  driverLicenseExperience: number | null
+  driverLicenseSeries: string | null
+  driverLicenseNumber: string | null
+
+  // Посвідчення тракториста
+  tractorLicenseIssuedBy: string | null
+  tractorLicenseCategory: string | null
+  tractorLicenseExpiry: string | null
+  tractorLicenseIssuedDate: string | null
+  tractorLicenseExperience: number | null
+  tractorLicenseSeries: string | null
+  tractorLicenseNumber: string | null
+
+  // Базова загальновійськова підготовка
+  basicTrainingDateFrom: string | null
+  basicTrainingDateTo: string | null
+  basicTrainingPlace: string | null
+  basicTrainingCommander: string | null
+  basicTrainingNotes: string | null
+
   createdAt: string
   updatedAt: string
 }

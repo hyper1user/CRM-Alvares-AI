@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card,
-  Descriptions,
-  Tabs,
+  Row,
+  Col,
   Button,
   Space,
   Spin,
@@ -13,9 +13,25 @@ import {
   Table,
   Tag,
   Badge,
-  theme
+  theme,
+  List,
+  Avatar,
+  Tooltip,
+  Empty,
+  Tabs
 } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, UserOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  ArrowLeftOutlined,
+  EditOutlined,
+  UserOutlined,
+  PlusOutlined,
+  FilePdfOutlined,
+  FileWordOutlined,
+  FileImageOutlined,
+  FileOutlined,
+  FolderOpenOutlined,
+  CameraOutlined
+} from '@ant-design/icons'
 import { usePersonnelCard } from '../hooks/usePersonnel'
 import { usePersonMovements } from '../hooks/useMovements'
 import { usePersonStatusHistory } from '../hooks/useStatusHistory'
@@ -31,9 +47,81 @@ import dayjs from 'dayjs'
 
 const { Title, Text } = Typography
 
+interface DocFile {
+  name: string
+  path: string
+  ext: string
+  category: string
+  isPhoto: boolean
+}
+
+function fileIcon(ext: string): JSX.Element {
+  if (ext === '.pdf') return <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 20 }} />
+  if (ext === '.docx' || ext === '.doc') return <FileWordOutlined style={{ color: '#1890ff', fontSize: 20 }} />
+  if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) return <FileImageOutlined style={{ color: '#52c41a', fontSize: 20 }} />
+  return <FileOutlined style={{ fontSize: 20 }} />
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  'Паспорт': 'blue',
+  'Військовий квиток': 'green',
+  'УБД': 'purple',
+  'ІПН': 'cyan',
+  'Автобіографія': 'orange',
+  'Контракт': 'gold',
+  'ID-картка': 'blue',
+  'Наказ': 'red',
+  'Фото': 'magenta',
+  'Інше': 'default'
+}
+
 function formatDate(d: string | null | undefined): string {
   if (!d) return '—'
   return dayjs(d).format('DD.MM.YYYY')
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }): JSX.Element {
+  const { token } = theme.useToken()
+  return (
+    <div
+      style={{
+        background: token.colorFillTertiary,
+        padding: '5px 10px',
+        marginBottom: 10,
+        fontWeight: 700,
+        fontSize: 11,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+        color: token.colorText,
+        borderLeft: `3px solid ${token.colorPrimary}`
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value?: React.ReactNode }): JSX.Element {
+  const { token } = theme.useToken()
+  return (
+    <tr>
+      <td
+        style={{
+          color: token.colorTextSecondary,
+          padding: '3px 10px 3px 0',
+          fontSize: 13,
+          whiteSpace: 'nowrap',
+          verticalAlign: 'top',
+          width: 95
+        }}
+      >
+        {label}
+      </td>
+      <td style={{ padding: '3px 0', fontSize: 13, fontWeight: 500, verticalAlign: 'top' }}>
+        {value ?? '—'}
+      </td>
+    </tr>
+  )
 }
 
 export default function PersonnelCard(): JSX.Element {
@@ -41,7 +129,7 @@ export default function PersonnelCard(): JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: person, loading, refetch } = usePersonnelCard(id ? Number(id) : null)
-  const { bloodTypes, educationLevels, contractTypes, statusTypes } = useLookups()
+  const { bloodTypes, contractTypes, statusTypes } = useLookups()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [movementDrawerOpen, setMovementDrawerOpen] = useState(false)
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false)
@@ -55,6 +143,47 @@ export default function PersonnelCard(): JSX.Element {
     loading: statusesLoading,
     refetch: refetchStatuses
   } = usePersonStatusHistory(id ? Number(id) : null)
+
+  const [docFiles, setDocFiles] = useState<DocFile[]>([])
+  const [scanPhotoPath, setScanPhotoPath] = useState<string | null>(null)
+  const [folderPath, setFolderPath] = useState<string | null>(null)
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [photoHover, setPhotoHover] = useState(false)
+  const [photoError, setPhotoError] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
+  useEffect(() => {
+    if (!person) return
+    setDocsLoading(true)
+    setPhotoError(false)
+    window.api.docsScanPerson(person.fullName).then((result) => {
+      setDocFiles(result.files)
+      setScanPhotoPath(result.photoPath)
+      setFolderPath(result.folderPath)
+    }).catch(() => {}).finally(() => setDocsLoading(false))
+  }, [person?.fullName])
+
+  useEffect(() => { setPhotoError(false) }, [person?.id])
+
+  const effectivePhotoPath = person?.photoPath || scanPhotoPath
+
+  const handlePhotoClick = async () => {
+    if (!person || uploadingPhoto) return
+    setUploadingPhoto(true)
+    try {
+      const selected = await window.api.openFileDialog([
+        { name: 'Зображення', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }
+      ])
+      if (!selected) return
+      const result = await window.api.personnelUpdate(person.id, { photoPath: selected })
+      if (result && !('error' in result)) {
+        setPhotoError(false)
+        refetch()
+      }
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -70,18 +199,13 @@ export default function PersonnelCard(): JSX.Element {
         status="404"
         title="Особу не знайдено"
         subTitle={`Запис з ID ${id} не існує`}
-        extra={
-          <Button onClick={() => navigate('/personnel')}>Повернутися до реєстру</Button>
-        }
+        extra={<Button onClick={() => navigate('/personnel')}>Повернутися до реєстру</Button>}
       />
     )
   }
 
   const bloodTypeName = person.bloodTypeId
     ? bloodTypes.find((b) => b.id === person.bloodTypeId)?.name
-    : null
-  const educationName = person.educationLevelId
-    ? educationLevels.find((e) => e.id === person.educationLevelId)?.name
     : null
   const contractName = person.contractTypeId
     ? contractTypes.find((c) => c.id === person.contractTypeId)?.name
@@ -92,129 +216,6 @@ export default function PersonnelCard(): JSX.Element {
 
   const tabItems = [
     {
-      key: 'general',
-      label: 'Загальна інформація',
-      children: (
-        <>
-          <Descriptions bordered column={2} size="small" title="Основні дані">
-            <Descriptions.Item label="РНОКПП (ІПН)">{person.ipn}</Descriptions.Item>
-            <Descriptions.Item label="ПІБ">{person.fullName}</Descriptions.Item>
-            <Descriptions.Item label="Позивний">{person.callsign || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Телефон">{person.phone || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Дата народження">
-              {formatDate(person.dateOfBirth)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Стать">
-              {person.gender === 'ч' ? 'Чоловіча' : person.gender === 'ж' ? 'Жіноча' : '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Особовий номер">
-              {person.personalNumber || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Статус запису">
-              {person.status}
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider />
-
-          <Descriptions bordered column={2} size="small" title="Службові дані">
-            <Descriptions.Item label="Звання">
-              <RankBadge rankName={person.rankName} category={person.rankCategory} />
-            </Descriptions.Item>
-            <Descriptions.Item label="Вид служби">{person.serviceType || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Контракт">{contractName || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Дата контракту">
-              {formatDate(person.contractDate)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Закінчення контракту">
-              {formatDate(person.contractEndDate)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Підрозділ">
-              {person.currentSubdivision || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Посада">
-              {person.positionTitle || person.currentPositionIdx || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Дата зарахування">
-              {formatDate(person.enrollmentDate)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Наказ зарахування">
-              {person.enrollmentOrderNum || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Звідки прибув">
-              {person.arrivedFrom || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Наказ про звання">
-              {person.rankOrderInfo || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Дата наказу звання">
-              {formatDate(person.rankOrderDate)}
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider />
-
-          <Descriptions bordered column={2} size="small" title="Документи">
-            <Descriptions.Item label="ID-документ">
-              {[person.idDocType, person.idDocSeries, person.idDocNumber]
-                .filter(Boolean)
-                .join(' ') || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Паспорт">
-              {[person.passportSeries, person.passportNumber].filter(Boolean).join(' ') || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Паспорт виданий">
-              {person.passportIssuedBy || '—'} {formatDate(person.passportIssuedDate)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Військовий квиток">
-              {[person.militaryIdSeries, person.militaryIdNumber].filter(Boolean).join(' ') || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="УБД">
-              {[person.ubdSeries, person.ubdNumber].filter(Boolean).join(' ') || '—'}
-              {person.ubdDate ? ` від ${formatDate(person.ubdDate)}` : ''}
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider />
-
-          <Descriptions bordered column={2} size="small" title="Персональне">
-            <Descriptions.Item label="Група крові">{bloodTypeName || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Освіта">{educationName || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Навч. заклад">
-              {person.educationInstitution || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Місце народження">
-              {person.birthplace || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Адреса фактична" span={2}>
-              {person.addressActual || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Адреса реєстрації" span={2}>
-              {person.addressRegistered || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Сімейний стан">
-              {person.maritalStatus || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Громадянство">
-              {person.citizenship || '—'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Родичі" span={2}>
-              {person.relativesInfo || '—'}
-            </Descriptions.Item>
-          </Descriptions>
-
-          {person.notes && (
-            <>
-              <Divider />
-              <Descriptions bordered column={1} size="small" title="Примітки">
-                <Descriptions.Item>{person.notes}</Descriptions.Item>
-              </Descriptions>
-            </>
-          )}
-        </>
-      )
-    },
-    {
       key: 'movements',
       label: (
         <Badge count={personMovements.length} size="small" offset={[8, 0]} color="blue">
@@ -224,15 +225,8 @@ export default function PersonnelCard(): JSX.Element {
       children: (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text strong>
-              Історія переміщень ({personMovements.length})
-            </Typography.Text>
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setMovementDrawerOpen(true)}
-            >
+            <Text strong>Історія переміщень ({personMovements.length})</Text>
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setMovementDrawerOpen(true)}>
               Додати
             </Button>
           </div>
@@ -244,55 +238,28 @@ export default function PersonnelCard(): JSX.Element {
             pagination={false}
             scroll={{ x: 900 }}
             columns={[
+              { title: 'Тип', dataIndex: 'orderType', width: 130, render: (t: string) => <Tag color="blue">{t}</Tag> },
               {
-                title: 'Тип',
-                dataIndex: 'orderType',
-                width: 130,
-                render: (text: string) => <Tag color="blue">{text}</Tag>
+                title: 'Посада (на)', dataIndex: 'positionTitle', width: 200, ellipsis: true,
+                render: (_: unknown, r: typeof personMovements[0]) => r.positionTitle || r.positionIndex || '—'
               },
               {
-                title: 'Посада (на)',
-                dataIndex: 'positionTitle',
-                width: 200,
-                ellipsis: true,
-                render: (_: unknown, record: typeof personMovements[0]) =>
-                  record.positionTitle || record.positionIndex || '—'
+                title: 'Посада (з)', dataIndex: 'previousPositionTitle', width: 200, ellipsis: true,
+                render: (_: unknown, r: typeof personMovements[0]) => r.previousPositionTitle || r.previousPosition || '—'
               },
+              { title: 'Дата з', dataIndex: 'dateFrom', width: 110, render: (t: string) => t ? dayjs(t).format('DD.MM.YYYY') : '—' },
               {
-                title: 'Посада (з)',
-                dataIndex: 'previousPositionTitle',
-                width: 200,
-                ellipsis: true,
-                render: (_: unknown, record: typeof personMovements[0]) =>
-                  record.previousPositionTitle || record.previousPosition || '—'
-              },
-              {
-                title: 'Дата з',
-                dataIndex: 'dateFrom',
-                width: 110,
-                render: (text: string) => (text ? dayjs(text).format('DD.MM.YYYY') : '—')
-              },
-              {
-                title: 'Наказ',
-                dataIndex: 'orderNumber',
-                width: 180,
-                ellipsis: true,
-                render: (_: unknown, record: typeof personMovements[0]) => {
+                title: 'Наказ', dataIndex: 'orderNumber', width: 180, ellipsis: true,
+                render: (_: unknown, r: typeof personMovements[0]) => {
                   const parts = [
-                    record.orderIssuer,
-                    record.orderNumber ? `№${record.orderNumber}` : null,
-                    record.orderDate ? `від ${dayjs(record.orderDate).format('DD.MM.YYYY')}` : null
+                    r.orderIssuer,
+                    r.orderNumber ? `№${r.orderNumber}` : null,
+                    r.orderDate ? `від ${dayjs(r.orderDate).format('DD.MM.YYYY')}` : null
                   ].filter(Boolean)
                   return parts.length > 0 ? parts.join(' ') : '—'
                 }
               },
-              {
-                title: 'Активне',
-                dataIndex: 'isActive',
-                width: 80,
-                render: (val: boolean) =>
-                  val ? <Tag color="green">Так</Tag> : <Tag color="default">Ні</Tag>
-              }
+              { title: 'Активне', dataIndex: 'isActive', width: 80, render: (v: boolean) => v ? <Tag color="green">Так</Tag> : <Tag color="default">Ні</Tag> }
             ]}
           />
           <Divider>Часова шкала</Divider>
@@ -310,15 +277,8 @@ export default function PersonnelCard(): JSX.Element {
       children: (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text strong>
-              Історія статусів ({personStatuses.length})
-            </Typography.Text>
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setStatusDrawerOpen(true)}
-            >
+            <Text strong>Історія статусів ({personStatuses.length})</Text>
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setStatusDrawerOpen(true)}>
               Додати
             </Button>
           </div>
@@ -331,52 +291,17 @@ export default function PersonnelCard(): JSX.Element {
             scroll={{ x: 800 }}
             columns={[
               {
-                title: 'Статус',
-                dataIndex: 'statusName',
-                width: 200,
-                render: (_: unknown, record: typeof personStatuses[0]) => (
-                  <Tag color={record.statusColor || 'default'}>
-                    {record.statusCode} — {record.statusName}
-                  </Tag>
+                title: 'Статус', dataIndex: 'statusName', width: 220,
+                render: (_: unknown, r: typeof personStatuses[0]) => (
+                  <Tag color={r.statusColor || 'default'}>{r.statusCode} — {r.statusName}</Tag>
                 )
               },
-              {
-                title: 'Група',
-                dataIndex: 'groupName',
-                width: 140
-              },
-              {
-                title: 'Дата з',
-                dataIndex: 'dateFrom',
-                width: 110,
-                render: (text: string) => (text ? dayjs(text).format('DD.MM.YYYY') : '—')
-              },
-              {
-                title: 'Дата по',
-                dataIndex: 'dateTo',
-                width: 110,
-                render: (text: string) => (text ? dayjs(text).format('DD.MM.YYYY') : '—')
-              },
-              {
-                title: 'Присутність',
-                dataIndex: 'presenceGroup',
-                width: 100,
-                render: (text: string) => text || '—'
-              },
-              {
-                title: 'Поточний',
-                dataIndex: 'isLast',
-                width: 80,
-                render: (val: boolean) =>
-                  val ? <Tag color="green">Так</Tag> : <Tag color="default">Ні</Tag>
-              },
-              {
-                title: 'Коментар',
-                dataIndex: 'comment',
-                width: 200,
-                ellipsis: true,
-                render: (text: string) => text || '—'
-              }
+              { title: 'Група', dataIndex: 'groupName', width: 140 },
+              { title: 'Дата з', dataIndex: 'dateFrom', width: 110, render: (t: string) => t ? dayjs(t).format('DD.MM.YYYY') : '—' },
+              { title: 'Дата по', dataIndex: 'dateTo', width: 110, render: (t: string) => t ? dayjs(t).format('DD.MM.YYYY') : '—' },
+              { title: 'Присутність', dataIndex: 'presenceGroup', width: 100, render: (t: string) => t || '—' },
+              { title: 'Поточний', dataIndex: 'isLast', width: 80, render: (v: boolean) => v ? <Tag color="green">Так</Tag> : <Tag color="default">Ні</Tag> },
+              { title: 'Коментар', dataIndex: 'comment', width: 200, ellipsis: true, render: (t: string) => t || '—' }
             ]}
           />
           <Divider>Часова шкала</Divider>
@@ -386,87 +311,319 @@ export default function PersonnelCard(): JSX.Element {
     },
     {
       key: 'documents',
-      label: 'Документи',
+      label: (
+        <Badge count={docFiles.filter(f => !f.isPhoto).length} size="small" offset={[8, 0]} color="geekblue">
+          Документи
+        </Badge>
+      ),
       children: (
-        <Result
-          icon={<></>}
-          title="Документи"
-          subTitle="Буде реалізовано у Тижнях 9-12"
-        />
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {docsLoading && <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>}
+          {!docsLoading && !folderPath && (
+            <Result
+              icon={<FolderOpenOutlined style={{ fontSize: 48, color: token.colorTextQuaternary }} />}
+              title="Папку документів не знайдено"
+              subTitle={<span>Вкажіть корінну папку у <b>Налаштуваннях</b>. Папка особи: <b>{person.fullName}</b></span>}
+            />
+          )}
+          {!docsLoading && folderPath && docFiles.filter(f => !f.isPhoto).length === 0 && (
+            <Empty description="Документів не знайдено" />
+          )}
+          {!docsLoading && folderPath && docFiles.filter(f => !f.isPhoto).length > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>{folderPath}</Text>
+                <Button size="small" icon={<FolderOpenOutlined />} onClick={() => window.api.docsOpenFile(folderPath!)}>
+                  Відкрити папку
+                </Button>
+              </div>
+              <List
+                dataSource={docFiles.filter(f => !f.isPhoto)}
+                size="small"
+                renderItem={(file) => (
+                  <List.Item
+                    style={{ cursor: 'pointer', padding: '8px 4px' }}
+                    onClick={() => window.api.docsOpenFile(file.path)}
+                    actions={[<Tag color={CATEGORY_COLORS[file.category] ?? 'default'} key="cat">{file.category}</Tag>]}
+                  >
+                    <List.Item.Meta
+                      avatar={<Avatar icon={fileIcon(file.ext)} shape="square" style={{ background: 'transparent' }} />}
+                      title={<Tooltip title="Клік для відкриття"><Text style={{ cursor: 'pointer' }}>{file.name}</Text></Tooltip>}
+                    />
+                  </List.Item>
+                )}
+              />
+            </>
+          )}
+        </Space>
       )
     },
     {
-      key: 'leave',
-      label: 'Відпустки',
+      key: 'details',
+      label: 'Деталі',
       children: (
-        <Result
-          icon={<></>}
-          title="Відпустки"
-          subTitle="Буде реалізовано у Тижні 10"
-        />
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <SectionTitle>Документи</SectionTitle>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              <InfoRow label="ID-документ" value={[person.idDocType, person.idDocSeries, person.idDocNumber].filter(Boolean).join(' ') || '—'} />
+              <InfoRow label="Паспорт" value={[person.passportSeries, person.passportNumber].filter(Boolean).join(' ') || '—'} />
+              <InfoRow label="Паспорт вид." value={person.passportIssuedBy ? `${person.passportIssuedBy} ${formatDate(person.passportIssuedDate)}` : '—'} />
+              <InfoRow label="Військ. квиток" value={[person.militaryIdSeries, person.militaryIdNumber].filter(Boolean).join(' ') || '—'} />
+            </tbody>
+          </table>
+
+          <SectionTitle>Освіта та персональне</SectionTitle>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              <InfoRow label="Місце народж." value={person.birthplace || '—'} />
+              <InfoRow label="Адреса факт." value={person.addressActual || '—'} />
+              <InfoRow label="Громадянство" value={person.citizenship || '—'} />
+              <InfoRow label="Національність" value={person.nationality || '—'} />
+            </tbody>
+          </table>
+
+          {(person.iban || person.bankCard || person.bankName) && (
+            <>
+              <SectionTitle>Фінансові дані</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="IBAN" value={person.iban || '—'} />
+                  <InfoRow label="Банк" value={person.bankName || '—'} />
+                  <InfoRow label="Картка" value={person.bankCard || '—'} />
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {(person.driverLicenseCategory || person.driverLicenseSeries || person.driverLicenseNumber) && (
+            <>
+              <SectionTitle>Посвідчення водія</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="Категорія" value={person.driverLicenseCategory || '—'} />
+                  <InfoRow label="Серія/номер" value={[person.driverLicenseSeries, person.driverLicenseNumber].filter(Boolean).join(' ') || '—'} />
+                  <InfoRow label="Ким виданий" value={person.driverLicenseIssuedBy || '—'} />
+                  <InfoRow label="Дата видачі" value={formatDate(person.driverLicenseIssuedDate)} />
+                  <InfoRow label="Дійсне до" value={formatDate(person.driverLicenseExpiry)} />
+                  <InfoRow label="Стаж (р.)" value={person.driverLicenseExperience !== null ? String(person.driverLicenseExperience) : '—'} />
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {(person.tractorLicenseCategory || person.tractorLicenseSeries || person.tractorLicenseNumber) && (
+            <>
+              <SectionTitle>Посвідчення тракториста</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="Категорія" value={person.tractorLicenseCategory || '—'} />
+                  <InfoRow label="Серія/номер" value={[person.tractorLicenseSeries, person.tractorLicenseNumber].filter(Boolean).join(' ') || '—'} />
+                  <InfoRow label="Ким виданий" value={person.tractorLicenseIssuedBy || '—'} />
+                  <InfoRow label="Дата видачі" value={formatDate(person.tractorLicenseIssuedDate)} />
+                  <InfoRow label="Дійсне до" value={formatDate(person.tractorLicenseExpiry)} />
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {(person.basicTrainingDateFrom || person.basicTrainingPlace || person.basicTrainingCommander) && (
+            <>
+              <SectionTitle>Базова загальновійськова підготовка</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="Дата з" value={formatDate(person.basicTrainingDateFrom)} />
+                  <InfoRow label="Дата по" value={formatDate(person.basicTrainingDateTo)} />
+                  <InfoRow label="Місце" value={person.basicTrainingPlace || '—'} />
+                  <InfoRow label="Командир" value={person.basicTrainingCommander || '—'} />
+                  <InfoRow label="Примітки" value={person.basicTrainingNotes || '—'} />
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {person.notes && (
+            <>
+              <SectionTitle>Примітки</SectionTitle>
+              <Text>{person.notes}</Text>
+            </>
+          )}
+        </Space>
       )
     }
   ]
 
   return (
     <>
-      <Card>
-        {/* Header */}
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space align="center" size="middle" wrap>
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={() => navigate('/personnel')}
-            >
-              Назад
-            </Button>
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                background: token.colorFillSecondary,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <UserOutlined style={{ fontSize: 24, color: token.colorTextQuaternary }} />
-            </div>
-            <div>
-              <Title level={4} style={{ margin: 0 }}>
-                {person.fullName}
-              </Title>
-              <Space size="small">
-                <RankBadge rankName={person.rankName} category={person.rankCategory} />
-                <StatusBadge
-                  statusCode={person.currentStatusCode}
-                  statusName={person.statusName}
-                  colorCode={statusColor}
-                />
-                {person.currentSubdivision && (
-                  <Text type="secondary">{person.currentSubdivision}</Text>
-                )}
-                {(person.positionTitle || person.currentPositionIdx) && (
-                  <Text type="secondary">
-                    | {person.positionTitle || person.currentPositionIdx}
-                  </Text>
-                )}
-              </Space>
-            </div>
-            <div style={{ marginLeft: 'auto' }}>
-              <Button
-                type="primary"
-                icon={<EditOutlined />}
-                onClick={() => setDrawerOpen(true)}
-              >
-                Редагувати
-              </Button>
-            </div>
-          </Space>
+      {/* ── Page header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/personnel')}>
+          Назад
+        </Button>
+        <Title level={3} style={{ margin: 0, flex: 1 }}>
+          Картка військовослужбовця
+        </Title>
+        <Button type="primary" icon={<EditOutlined />} onClick={() => setDrawerOpen(true)}>
+          Редагування
+        </Button>
+      </div>
 
-          <Tabs items={tabItems} defaultActiveKey="general" />
-        </Space>
+      {/* ── Top 3-column section ── */}
+      <Row gutter={[12, 12]}>
+        {/* ── Col 1: Основні дані (з фото) ── */}
+        <Col xs={24} lg={12}>
+          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%' }}>
+            <SectionTitle>Основні дані</SectionTitle>
+            <div style={{ display: 'flex', gap: 16 }}>
+              {/* Portrait photo */}
+              <Tooltip title="Клік для зміни фото">
+                <div
+                  onClick={handlePhotoClick}
+                  onMouseEnter={() => setPhotoHover(true)}
+                  onMouseLeave={() => setPhotoHover(false)}
+                  style={{
+                    position: 'relative',
+                    width: 120,
+                    height: 155,
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                    overflow: 'hidden',
+                    borderRadius: 4,
+                    border: `2px solid ${photoHover ? token.colorPrimary : token.colorBorder}`,
+                    transition: 'border-color 0.2s',
+                    background: token.colorFillSecondary
+                  }}
+                >
+                  {effectivePhotoPath && !photoError ? (
+                    <img
+                      src={`safe-file:///${effectivePhotoPath.replace(/\\/g, '/')}`}
+                      alt=""
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      onError={() => setPhotoError(true)}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8
+                      }}
+                    >
+                      <UserOutlined style={{ fontSize: 40, color: token.colorTextQuaternary }} />
+                      <Text style={{ fontSize: 11, color: token.colorTextQuaternary }}>Фото</Text>
+                    </div>
+                  )}
+                  {(photoHover || uploadingPhoto) && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.55)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6
+                      }}
+                    >
+                      <CameraOutlined style={{ color: '#fff', fontSize: 24 }} />
+                      <Text style={{ color: '#fff', fontSize: 11 }}>Змінити</Text>
+                    </div>
+                  )}
+                </div>
+              </Tooltip>
+
+              {/* Main fields */}
+              <table style={{ flex: 1, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: 90 }} />
+                  <col />
+                </colgroup>
+                <tbody>
+                  <InfoRow label="ПІБ" value={<strong>{person.fullName}</strong>} />
+                  <InfoRow label="Звання" value={<RankBadge rankName={person.rankName} category={person.rankCategory} />} />
+                  <InfoRow label="Позивний" value={person.callsign || '—'} />
+                  <InfoRow
+                    label="Статус"
+                    value={
+                      <StatusBadge
+                        statusCode={person.currentStatusCode}
+                        statusName={person.statusName}
+                        colorCode={statusColor}
+                      />
+                    }
+                  />
+                  <InfoRow label="Підрозділ" value={person.currentSubdivision || '—'} />
+                  <InfoRow label="Позиція" value={person.positionTitle || person.currentPositionIdx || '—'} />
+                  <InfoRow label="Вид служби" value={contractName || person.serviceType || '—'} />
+                  <InfoRow label="Особ. номер" value={person.personalNumber || '—'} />
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </Col>
+
+        {/* ── Col 2: Особисті дані + Служба та призначення ── */}
+        <Col xs={24} sm={12} lg={6}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Card bodyStyle={{ padding: 12 }}>
+              <SectionTitle>Особисті дані</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="Дата народж." value={formatDate(person.dateOfBirth)} />
+                  <InfoRow
+                    label="Стать"
+                    value={person.gender === 'ч' ? 'Чоловіча' : person.gender === 'ж' ? 'Жіноча' : '—'}
+                  />
+                  <InfoRow label="Група крові" value={bloodTypeName || '—'} />
+                  <InfoRow label="ІПН" value={person.ipn || '—'} />
+                  <InfoRow
+                    label="УБД"
+                    value={[person.ubdSeries, person.ubdNumber].filter(Boolean).join(' ') || '—'}
+                  />
+                </tbody>
+              </table>
+            </Card>
+
+            <Card bodyStyle={{ padding: 12 }}>
+              <SectionTitle>Служба та призначення</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="ВОС" value={person.specialtyCode || '—'} />
+                  <InfoRow label="Дата зарах." value={formatDate(person.enrollmentDate)} />
+                  <InfoRow label="Наказ зарах." value={person.enrollmentOrderNum || '—'} />
+                  <InfoRow label="Звідки" value={person.arrivedFrom || '—'} />
+                  <InfoRow label="Кінець контр." value={formatDate(person.contractEndDate)} />
+                </tbody>
+              </table>
+            </Card>
+          </Space>
+        </Col>
+
+        {/* ── Col 3: Контакти та сім'я ── */}
+        <Col xs={24} sm={12} lg={6}>
+          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%' }}>
+            <SectionTitle>Контакти та сім&apos;я</SectionTitle>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                <InfoRow label="Телефон" value={person.phone || '—'} />
+                <InfoRow label="Сімейний стан" value={person.maritalStatus || '—'} />
+                <InfoRow label="Адреса реєстр." value={person.addressRegistered || '—'} />
+                <InfoRow label="Адреса факт." value={person.addressActual || '—'} />
+                <InfoRow label="Родичі" value={person.relativesInfo || '—'} />
+              </tbody>
+            </table>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ── Tabs ── */}
+      <Card style={{ marginTop: 12 }} bodyStyle={{ paddingTop: 8 }}>
+        <Tabs items={tabItems} defaultActiveKey="movements" />
       </Card>
 
       <PersonnelForm
@@ -479,10 +636,7 @@ export default function PersonnelCard(): JSX.Element {
       <MovementForm
         open={movementDrawerOpen}
         onClose={() => setMovementDrawerOpen(false)}
-        onSaved={() => {
-          refetchMovements()
-          refetch()
-        }}
+        onSaved={() => { refetchMovements(); refetch() }}
         personnelId={person.id}
         currentPositionIdx={person.currentPositionIdx}
       />
@@ -490,10 +644,7 @@ export default function PersonnelCard(): JSX.Element {
       <StatusHistoryForm
         open={statusDrawerOpen}
         onClose={() => setStatusDrawerOpen(false)}
-        onSaved={() => {
-          refetchStatuses()
-          refetch()
-        }}
+        onSaved={() => { refetchStatuses(); refetch() }}
         personnelId={person.id}
       />
     </>

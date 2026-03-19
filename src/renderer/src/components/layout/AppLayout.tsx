@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from 'react'
-import { Layout, Menu, Tag, Space, Tooltip, Select, theme } from 'antd'
+import { Layout, Menu, Tag, Space, Tooltip, theme } from 'antd'
 import type { MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
@@ -21,17 +21,17 @@ import {
   FormOutlined,
   FolderOutlined,
   MedicineBoxOutlined,
-  FileProtectOutlined,
+  WarningOutlined,
   DatabaseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SunOutlined,
   MoonOutlined,
-  AimOutlined
+  HomeOutlined,
+  PrinterOutlined
 } from '@ant-design/icons'
 import { ThemeContext } from '../../main'
 import { useAppStore } from '../../stores/app.store'
-import { useLookups } from '../../hooks/useLookups'
 import dayjs from 'dayjs'
 import AppRoutes from '../../routes'
 
@@ -61,7 +61,8 @@ const menuItems: MenuItem[] = [
     children: [
       { key: '/org-structure', icon: <BranchesOutlined />, label: 'Орг. структура' },
       { key: '/staffing', icon: <TableOutlined />, label: 'ШПО' },
-      { key: '/positions', icon: <SolutionOutlined />, label: 'Перелік посад' }
+      { key: '/positions', icon: <SolutionOutlined />, label: 'Перелік посад' },
+      { key: '/staff-roster', icon: <PrinterOutlined />, label: 'Штатний розпис' }
     ]
   },
   {
@@ -88,7 +89,7 @@ const menuItems: MenuItem[] = [
     icon: <FileTextOutlined />,
     label: 'Документи',
     children: [
-      { key: '/orders', icon: <FileProtectOutlined />, label: 'Накази' },
+      { key: '/missing-docs', icon: <WarningOutlined />, label: 'Відсутні документи' },
       { key: '/leave', icon: <FileTextOutlined />, label: 'Відпустки' },
       { key: '/injuries', icon: <MedicineBoxOutlined />, label: 'Поранення / Втрати' },
       { key: '/documents/generate', icon: <FormOutlined />, label: 'Генератор' },
@@ -134,9 +135,7 @@ export default function AppLayout(): JSX.Element {
   const { token } = theme.useToken()
   const { mode, toggle: toggleTheme } = useContext(ThemeContext)
   const isDark = mode === 'dark'
-  const globalSubdivision = useAppStore((s) => s.globalSubdivision)
-  const setGlobalSubdivision = useAppStore((s) => s.setGlobalSubdivision)
-  const { subdivisions } = useLookups()
+
 
   useEffect(() => {
     window.api.dbHealth().then((result: { ok: boolean; message: string }) => {
@@ -184,7 +183,7 @@ export default function AppLayout(): JSX.Element {
         >
           <DatabaseOutlined style={{ fontSize: 22, color: token.colorPrimary }} />
           {!collapsed && (
-            <span style={{ fontSize: 16, fontWeight: 600 }}>ЕЖООС+</span>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>АльваресAI</span>
           )}
         </div>
         <div style={{ flex: 1, overflow: 'auto' }}>
@@ -208,7 +207,7 @@ export default function AppLayout(): JSX.Element {
               flexShrink: 0
             }}
           >
-            {collapsed ? `v${appVersion}` : `ЕЖООС+ v${appVersion}`}
+            {collapsed ? `v${appVersion}` : `АльваресAI v${appVersion}`}
           </div>
         )}
       </Sider>
@@ -234,22 +233,10 @@ export default function AppLayout(): JSX.Element {
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </div>
           <Space size={8}>
-            <AimOutlined style={{ color: token.colorTextSecondary }} />
-            <Select
-              placeholder="Весь батальйон"
-              allowClear
-              showSearch
-              style={{ width: 220 }}
-              value={globalSubdivision}
-              onChange={setGlobalSubdivision}
-              filterOption={(input, option) =>
-                (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
-              }
-              options={subdivisions.map((s) => ({
-                value: s.code,
-                label: `${s.code} — ${s.name}`
-              }))}
-            />
+            <HomeOutlined style={{ color: token.colorTextSecondary }} />
+            <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px', margin: 0 }}>
+              Г-3 — 12 штурмова рота
+            </Tag>
           </Space>
           <div style={{ flex: 1 }} />
           <Space size={8}>

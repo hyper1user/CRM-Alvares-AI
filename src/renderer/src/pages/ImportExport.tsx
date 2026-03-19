@@ -30,13 +30,14 @@ import {
   DownloadOutlined,
   FileTextOutlined
 } from '@ant-design/icons'
-import type { ParseResult, ImportResult, ParseError, DataImportResult } from '@shared/types/import'
+import type { ParseResult, ImportResult, ParseError, DataImportResult, ImpulseImportResult } from '@shared/types/import'
 import type { ExportResult, CsvExportResult } from '@shared/types/export'
 
 const { Title, Text, Paragraph } = Typography
 
 type ImportPhase = 'idle' | 'loading' | 'preview' | 'importing' | 'done' | 'error'
 type DataPhase = 'idle' | 'loading' | 'done' | 'error'
+type ImpulsePhase = 'idle' | 'loading' | 'done' | 'error'
 type ExportPhase = 'idle' | 'exporting' | 'done' | 'error'
 
 export default function ImportExport(): JSX.Element {
@@ -52,6 +53,11 @@ export default function ImportExport(): JSX.Element {
   const [dataPath, setDataPath] = useState<string>('')
   const [dataResult, setDataResult] = useState<DataImportResult | null>(null)
   const [dataError, setDataError] = useState<string>('')
+
+  // Impulse state
+  const [impulsePhase, setImpulsePhase] = useState<ImpulsePhase>('idle')
+  const [impulseResult, setImpulseResult] = useState<ImpulseImportResult | null>(null)
+  const [impulseError, setImpulseError] = useState<string>('')
 
   // Export EJOOS state
   const [exportEjoosPhase, setExportEjoosPhase] = useState<ExportPhase>('idle')
@@ -138,6 +144,33 @@ export default function ImportExport(): JSX.Element {
     } catch (e) {
       setDataError(String(e))
       setDataPhase('error')
+    }
+  }
+
+  // ==================== IMPULSE HANDLERS ====================
+
+  const handleSelectImpulse = async (): Promise<void> => {
+    const filePath = await window.api.openFileDialog([
+      { name: 'Excel Impulse', extensions: ['xlsx', 'xls'] }
+    ])
+    if (!filePath) return
+
+    setImpulsePhase('loading')
+    setImpulseResult(null)
+    setImpulseError('')
+
+    try {
+      const response = await window.api.importImpulse(filePath)
+      if (response?.result) {
+        setImpulseResult(response.result as ImpulseImportResult)
+        setImpulsePhase('done')
+      } else {
+        setImpulseError('Невідома відповідь від сервера')
+        setImpulsePhase('error')
+      }
+    } catch (e) {
+      setImpulseError(String(e))
+      setImpulsePhase('error')
     }
   }
 
@@ -320,7 +353,65 @@ export default function ImportExport(): JSX.Element {
         )}
       </Card>
 
-      {/* Section 3: Export */}
+      {/* Section 3: Impulse Import */}
+      <Card
+        title={
+          <Space>
+            <CloudUploadOutlined />
+            <span>Імпульс Toolkit (збагачення)</span>
+          </Space>
+        }
+      >
+        {impulsePhase === 'idle' && (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Paragraph type="secondary" style={{ marginBottom: 24 }}>
+              Оберіть файл Імпульс Toolkit (.xlsx) для збагачення існуючих записів ОС даними:
+              закордонний паспорт, IBAN/банк, посвідчення водія та тракториста,
+              базова загальновійськова підготовка.
+            </Paragraph>
+            <Button
+              type="default"
+              size="large"
+              icon={<CloudUploadOutlined />}
+              onClick={handleSelectImpulse}
+            >
+              Обрати файл Імпульс
+            </Button>
+          </div>
+        )}
+
+        {impulsePhase === 'loading' && (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <Spin size="large" />
+            <Paragraph style={{ marginTop: 16 }}>Обробка файлу Імпульс...</Paragraph>
+          </div>
+        )}
+
+        {impulsePhase === 'done' && impulseResult && (
+          <ImpulseResult result={impulseResult} onReset={() => { setImpulsePhase('idle'); setImpulseResult(null) }} />
+        )}
+
+        {impulsePhase === 'error' && (
+          <Result
+            status="error"
+            title="Помилка імпорту Імпульс"
+            subTitle={impulseError}
+            extra={
+              <Button
+                type="primary"
+                onClick={() => {
+                  setImpulsePhase('idle')
+                  setImpulseError('')
+                }}
+              >
+                Спробувати знову
+              </Button>
+            }
+          />
+        )}
+      </Card>
+
+      {/* Section 4: Export */}
       <Card
         title={
           <Space>
@@ -805,6 +896,32 @@ function DataResult({ result }: { result: DataImportResult }): JSX.Element {
           <Text>Пропущено (не знайдено в БД): {result.skipped}</Text>
         </Space>
       }
+    >
+      {result.errors.length > 0 && (
+        <div style={{ maxHeight: 200, overflow: 'auto', textAlign: 'left' }}>
+          {result.errors.map((err, i) => (
+            <Paragraph key={i} style={{ marginBottom: 4, fontSize: 12 }} type="danger">
+              {err}
+            </Paragraph>
+          ))}
+        </div>
+      )}
+    </Result>
+  )
+}
+
+function ImpulseResult({ result, onReset }: { result: ImpulseImportResult; onReset: () => void }): JSX.Element {
+  return (
+    <Result
+      status={result.success ? 'success' : 'warning'}
+      title={result.success ? 'Імпорт Імпульс завершено' : 'Імпорт завершено з помилками'}
+      subTitle={
+        <Space direction="vertical" size={4}>
+          <Text>Оновлено записів: {result.updated}</Text>
+          <Text>Пропущено (не знайдено в БД): {result.skipped}</Text>
+        </Space>
+      }
+      extra={<Button onClick={onReset}>Імпортувати ще раз</Button>}
     >
       {result.errors.length > 0 && (
         <div style={{ maxHeight: 200, overflow: 'auto', textAlign: 'left' }}>
