@@ -3,8 +3,8 @@ import { join, resolve, normalize } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase, getDatabase } from './db/connection'
-import { settings } from './db/schema'
-import { eq } from 'drizzle-orm'
+import { settings, personnel } from './db/schema'
+import { eq, sql } from 'drizzle-orm'
 import { registerIpcHandlers } from './ipc'
 import { initAutoUpdater } from './updater'
 
@@ -79,10 +79,21 @@ app.whenReady().then(() => {
     } catch { /* DB not ready yet — only userData allowed */ }
 
     const normalizedResolved = resolvedPath.replace(/\\/g, '/').toLowerCase()
-    const isAllowed = allowedDirs.some((dir) => {
+    let isAllowed = allowedDirs.some((dir) => {
       const normalizedDir = resolve(normalize(dir)).replace(/\\/g, '/').toLowerCase()
       return normalizedResolved.startsWith(normalizedDir + '/')
     })
+
+    // Also allow exact photoPath matches from personnel table
+    if (!isAllowed) {
+      try {
+        const db = getDatabase()
+        const photo = db.select({ photoPath: personnel.photoPath }).from(personnel)
+          .where(eq(sql`lower(replace(${personnel.photoPath}, '\\', '/'))`, normalizedResolved))
+          .limit(1).get()
+        if (photo) isAllowed = true
+      } catch { /* DB not ready */ }
+    }
 
     if (!isAllowed) {
       console.warn(`[safe-file] Blocked access to: ${resolvedPath}`)

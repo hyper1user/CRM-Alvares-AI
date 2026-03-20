@@ -11,6 +11,7 @@ import {
   bloodTypes,
   contractTypes,
   educationLevels,
+  tccOffices,
   settings,
   personnel,
   positions,
@@ -203,16 +204,32 @@ export function registerIpcHandlers(): void {
     }
 
     let statusName: string | null = null
+    let statusColorCode: string | null = null
     if (row.currentStatusCode) {
       const st = db
         .select()
         .from(statusTypes)
         .where(eq(statusTypes.code, row.currentStatusCode))
         .get()
-      if (st) statusName = st.name
+      if (st) {
+        statusName = st.name
+        statusColorCode = st.colorCode ?? null
+      }
     }
 
-    return { ...row, rankName, rankCategory, positionTitle, statusName }
+    let educationLevelName: string | null = null
+    if (row.educationLevelId) {
+      const el = db.select().from(educationLevels).where(eq(educationLevels.id, row.educationLevelId)).get()
+      if (el) educationLevelName = el.name
+    }
+
+    let tccName: string | null = null
+    if (row.tccId) {
+      const tcc = db.select().from(tccOffices).where(eq(tccOffices.id, row.tccId)).get()
+      if (tcc) tccName = tcc.name
+    }
+
+    return { ...row, rankName, rankCategory, positionTitle, statusName, statusColorCode, educationLevelName, tccName }
   })
 
   // Personnel create
@@ -1206,6 +1223,49 @@ export function registerIpcHandlers(): void {
         groupName: st?.groupName ?? ''
       }
     })
+  })
+
+  safeHandle(IPC.STATUS_HISTORY_DELETE, (_event, id: number) => {
+    try {
+      const db = getDatabase()
+      const row = db.select().from(statusHistory).where(eq(statusHistory.id, id)).get()
+      if (!row) return { success: false, error: 'Запис не знайдено' }
+
+      db.delete(statusHistory).where(eq(statusHistory.id, id)).run()
+
+      // If deleted was isLast, promote the next most recent record
+      if (row.isLast) {
+        const latest = db
+          .select()
+          .from(statusHistory)
+          .where(eq(statusHistory.personnelId, row.personnelId))
+          .orderBy(sql`${statusHistory.dateFrom} DESC`)
+          .limit(1)
+          .get()
+
+        if (latest) {
+          db.update(statusHistory)
+            .set({ isLast: true })
+            .where(eq(statusHistory.id, latest.id))
+            .run()
+          db.update(personnel)
+            .set({ currentStatusCode: latest.statusCode })
+            .where(eq(personnel.id, row.personnelId))
+            .run()
+        } else {
+          // No more statuses — clear currentStatusCode
+          db.update(personnel)
+            .set({ currentStatusCode: null })
+            .where(eq(personnel.id, row.personnelId))
+            .run()
+        }
+      }
+
+      return { success: true }
+    } catch (err) {
+      console.error('[ipc] STATUS_HISTORY_DELETE error:', err)
+      return { success: false, error: String(err) }
+    }
   })
 
   // ==================== ATTENDANCE ====================

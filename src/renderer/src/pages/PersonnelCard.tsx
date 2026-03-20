@@ -18,13 +18,16 @@ import {
   Avatar,
   Tooltip,
   Empty,
-  Tabs
+  Tabs,
+  Popconfirm,
+  App
 } from 'antd'
 import {
   ArrowLeftOutlined,
   EditOutlined,
   UserOutlined,
   PlusOutlined,
+  DeleteOutlined,
   FilePdfOutlined,
   FileWordOutlined,
   FileImageOutlined,
@@ -126,6 +129,7 @@ function InfoRow({ label, value }: { label: string; value?: React.ReactNode }): 
 
 export default function PersonnelCard(): JSX.Element {
   const { token } = theme.useToken()
+  const { message } = App.useApp()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: person, loading, refetch } = usePersonnelCard(id ? Number(id) : null)
@@ -301,7 +305,19 @@ export default function PersonnelCard(): JSX.Element {
               { title: 'Дата по', dataIndex: 'dateTo', width: 110, render: (t: string) => t ? dayjs(t).format('DD.MM.YYYY') : '—' },
               { title: 'Присутність', dataIndex: 'presenceGroup', width: 100, render: (t: string) => t || '—' },
               { title: 'Поточний', dataIndex: 'isLast', width: 80, render: (v: boolean) => v ? <Tag color="green">Так</Tag> : <Tag color="default">Ні</Tag> },
-              { title: 'Коментар', dataIndex: 'comment', width: 200, ellipsis: true, render: (t: string) => t || '—' }
+              { title: 'Коментар', dataIndex: 'comment', width: 200, ellipsis: true, render: (t: string) => t || '—' },
+              {
+                title: '', width: 50, align: 'center' as const,
+                render: (_: unknown, r: typeof personStatuses[0]) => (
+                  <Popconfirm title="Видалити статус?" onConfirm={async () => {
+                    const res = await window.api.statusHistoryDelete(r.id)
+                    if (res?.success) { message.success('Статус видалено'); refetchStatuses(); refetch() }
+                    else message.error('Помилка видалення')
+                  }} okText="Так" cancelText="Ні">
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                )
+              }
             ]}
           />
           <Divider>Часова шкала</Divider>
@@ -366,16 +382,19 @@ export default function PersonnelCard(): JSX.Element {
           <SectionTitle>Документи</SectionTitle>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
-              <InfoRow label="ID-документ" value={[person.idDocType, person.idDocSeries, person.idDocNumber].filter(Boolean).join(' ') || '—'} />
-              <InfoRow label="Паспорт" value={[person.passportSeries, person.passportNumber].filter(Boolean).join(' ') || '—'} />
-              <InfoRow label="Паспорт вид." value={person.passportIssuedBy ? `${person.passportIssuedBy} ${formatDate(person.passportIssuedDate)}` : '—'} />
-              <InfoRow label="Військ. квиток" value={[person.militaryIdSeries, person.militaryIdNumber].filter(Boolean).join(' ') || '—'} />
+              <InfoRow label="Паспорт" value={[person.idDocType, person.passportSeries || person.idDocSeries, person.passportNumber || person.idDocNumber].filter(Boolean).join(' ') || '—'} />
+              <InfoRow label="Виданий" value={person.passportIssuedBy ? `${person.passportIssuedBy} ${formatDate(person.passportIssuedDate)}` : '—'} />
+              <InfoRow label="Військовий квиток" value={[person.militaryIdSeries, person.militaryIdNumber].filter(Boolean).join(' ') || '—'} />
             </tbody>
           </table>
 
           <SectionTitle>Освіта та персональне</SectionTitle>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
+              <InfoRow label="Освіта" value={person.educationLevelName || '—'} />
+              <InfoRow label="Заклад" value={person.educationInstitution || '—'} />
+              <InfoRow label="Рік закінч." value={person.educationYear || '—'} />
+              <InfoRow label="Військ. освіта" value={person.militaryEducation || '—'} />
               <InfoRow label="Місце народж." value={person.birthplace || '—'} />
               <InfoRow label="Адреса факт." value={person.addressActual || '—'} />
               <InfoRow label="Громадянство" value={person.citizenship || '—'} />
@@ -560,7 +579,7 @@ export default function PersonnelCard(): JSX.Element {
                   <InfoRow label="Підрозділ" value={person.currentSubdivision || '—'} />
                   <InfoRow label="Позиція" value={person.positionTitle || person.currentPositionIdx || '—'} />
                   <InfoRow label="Вид служби" value={contractName || person.serviceType || '—'} />
-                  <InfoRow label="Особ. номер" value={person.personalNumber || '—'} />
+                  <InfoRow label="Особистий номер" value={person.ipn || '—'} />
                 </tbody>
               </table>
             </div>
@@ -590,14 +609,16 @@ export default function PersonnelCard(): JSX.Element {
             </Card>
 
             <Card bodyStyle={{ padding: 12 }}>
-              <SectionTitle>Служба та призначення</SectionTitle>
+              <SectionTitle>Службові відомості</SectionTitle>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
                   <InfoRow label="ВОС" value={person.specialtyCode || '—'} />
                   <InfoRow label="Дата зарах." value={formatDate(person.enrollmentDate)} />
                   <InfoRow label="Наказ зарах." value={person.enrollmentOrderNum || '—'} />
-                  <InfoRow label="Звідки" value={person.arrivedFrom || '—'} />
-                  <InfoRow label="Кінець контр." value={formatDate(person.contractEndDate)} />
+                  <InfoRow label="Призваний" value={[person.tccName, formatDate(person.conscriptionDate)].filter(Boolean).join(', ') || '—'} />
+                  {person.serviceType !== 'мобілізація' && (
+                    <InfoRow label="Кінець контр." value={formatDate(person.contractEndDate)} />
+                  )}
                 </tbody>
               </table>
             </Card>

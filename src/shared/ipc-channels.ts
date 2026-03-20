@@ -38,6 +38,7 @@ export const IPC = {
   STATUS_HISTORY_LIST: 'status-history:list',
   STATUS_HISTORY_CREATE: 'status-history:create',
   STATUS_HISTORY_GET_BY_PERSON: 'status-history:get-by-person',
+  STATUS_HISTORY_DELETE: 'status-history:delete',
 
   // Attendance
   ATTENDANCE_GET_MONTH: 'attendance:get-month',

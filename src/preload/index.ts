@@ -85,6 +85,8 @@ const api = {
     ipcRenderer.invoke(IPC.STATUS_HISTORY_CREATE, data),
   statusHistoryGetByPerson: (personnelId: number) =>
     ipcRenderer.invoke(IPC.STATUS_HISTORY_GET_BY_PERSON, personnelId),
+  statusHistoryDelete: (id: number): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC.STATUS_HISTORY_DELETE, id),
 
   // Attendance
   attendanceGetMonth: (year: number, month: number, subdivisionCode?: string) =>
