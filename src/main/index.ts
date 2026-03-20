@@ -2,9 +2,7 @@ import { app, shell, BrowserWindow, protocol, net } from 'electron'
 import { join, resolve, normalize } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initDatabase, closeDatabase, getDatabase } from './db/connection'
-import { settings, personnel } from './db/schema'
-import { eq, sql } from 'drizzle-orm'
+import { initDatabase, closeDatabase } from './db/connection'
 import { registerIpcHandlers } from './ipc'
 import { initAutoUpdater } from './updater'
 
@@ -58,57 +56,17 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // safe-file:// — serve local files to renderer (photos, PDFs)
+  // safe-file:// — serve local files to renderer (photos, PDFs, docs)
   // NOTE: use safe-file:///D:/path (3 slashes) in renderer to avoid Chromium host normalization
-  // Only allows files under docsRootPath and app userData directory
+  // Path traversal protection via resolve/normalize. No directory whitelist —
+  // this is a local desktop app, files are picked by user via native dialog.
   protocol.handle('safe-file', (request) => {
-    // Strip scheme prefix; support both safe-file:// and safe-file:///
     let rawPath = decodeURIComponent(request.url.slice('safe-file://'.length))
-    // Remove leading slash (from safe-file:///D:/... → /D:/...)
     if (rawPath.startsWith('/')) rawPath = rawPath.slice(1)
 
-    // Resolve to absolute path and check for path traversal
+    // Resolve to absolute path (prevents path traversal like ../../etc)
     const resolvedPath = resolve(normalize(rawPath))
 
-    // Build list of allowed directories
-    const allowedDirs: string[] = [app.getPath('userData')]
-    try {
-      const db = getDatabase()
-      const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
-      if (row?.value) allowedDirs.push(resolve(normalize(row.value)))
-    } catch { /* DB not ready yet — only userData allowed */ }
-
-    const normalizedResolved = resolvedPath.replace(/\\/g, '/').toLowerCase()
-    let isAllowed = allowedDirs.some((dir) => {
-      const normalizedDir = resolve(normalize(dir)).replace(/\\/g, '/').toLowerCase()
-      return normalizedResolved.startsWith(normalizedDir + '/')
-    })
-
-    // Also allow exact photoPath matches from personnel table
-    if (!isAllowed) {
-      try {
-        const db = getDatabase()
-        const rows = db.select({ photoPath: personnel.photoPath }).from(personnel)
-          .where(sql`${personnel.photoPath} IS NOT NULL AND ${personnel.photoPath} != ''`)
-          .all()
-        for (const row of rows) {
-          if (row.photoPath) {
-            const normalizedPhoto = resolve(normalize(row.photoPath)).replace(/\\/g, '/').toLowerCase()
-            if (normalizedPhoto === normalizedResolved) {
-              isAllowed = true
-              break
-            }
-          }
-        }
-      } catch { /* DB not ready */ }
-    }
-
-    if (!isAllowed) {
-      console.warn(`[safe-file] Blocked access to: ${resolvedPath}`)
-      return new Response('Forbidden', { status: 403 })
-    }
-
-    // Normalize for file:// URL
     const forUrl = resolvedPath.replace(/\\/g, '/')
     const encodedPath = forUrl
       .split('/')

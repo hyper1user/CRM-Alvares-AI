@@ -579,8 +579,8 @@ export default function PersonnelCard(): JSX.Element {
                     }
                   />
                   <InfoRow label="Підрозділ" value={person.currentSubdivision || '—'} />
-                  <InfoRow label="Позиція" value={person.positionTitle || person.currentPositionIdx || '—'} />
-                  <InfoRow label="Вид служби" value={contractName || person.serviceType || '—'} />
+                  <InfoRow label="Посада" value={person.positionTitle || person.currentPositionIdx || '—'} />
+                  <InfoRow label="Вид служби" value={person.serviceType || '—'} />
                   <InfoRow label="Особистий номер" value={person.ipn || '—'} />
                 </tbody>
               </table>
@@ -619,7 +619,9 @@ export default function PersonnelCard(): JSX.Element {
                   <InfoRow label="Наказ" value={person.enrollmentOrderNum || '—'} />
                   <InfoRow label="Призваний" value={[person.tccName, formatDate(person.conscriptionDate)].filter(v => v && v !== '—').join(', ') || '—'} />
                   {person.serviceType !== 'мобілізація' && person.serviceType !== 'мобілізований' && (
-                    <InfoRow label="Кінець контр." value={formatDate(person.contractEndDate)} />
+                    <InfoRow label="Кінець контракту" value={
+                      [contractName, formatDate(person.contractEndDate)].filter(v => v && v !== '—').join(' — ') || '—'
+                    } />
                   )}
                 </tbody>
               </table>
