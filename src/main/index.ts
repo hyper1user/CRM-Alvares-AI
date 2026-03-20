@@ -1,8 +1,10 @@
 import { app, shell, BrowserWindow, protocol, net } from 'electron'
-import { join } from 'path'
+import { join, resolve, normalize } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initDatabase, closeDatabase } from './db/connection'
+import { initDatabase, closeDatabase, getDatabase } from './db/connection'
+import { settings } from './db/schema'
+import { eq } from 'drizzle-orm'
 import { registerIpcHandlers } from './ipc'
 import { initAutoUpdater } from './updater'
 
@@ -12,7 +14,7 @@ app.commandLine.appendSwitch('disable-gpu-compositing')
 // Register safe-file:// protocol BEFORE app ready
 // Serves local files (photos, PDFs) to the renderer without exposing file:// directly
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'safe-file', privileges: { secure: true, bypassCSP: true, supportFetchAPI: true } }
+  { scheme: 'safe-file', privileges: { secure: true, supportFetchAPI: true } }
 ])
 
 function createWindow(): void {
@@ -28,7 +30,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -58,15 +60,38 @@ app.whenReady().then(() => {
 
   // safe-file:// — serve local files to renderer (photos, PDFs)
   // NOTE: use safe-file:///D:/path (3 slashes) in renderer to avoid Chromium host normalization
+  // Only allows files under docsRootPath and app userData directory
   protocol.handle('safe-file', (request) => {
     // Strip scheme prefix; support both safe-file:// and safe-file:///
     let rawPath = decodeURIComponent(request.url.slice('safe-file://'.length))
     // Remove leading slash (from safe-file:///D:/... → /D:/...)
     if (rawPath.startsWith('/')) rawPath = rawPath.slice(1)
-    // Normalize backslashes
-    const normalized = rawPath.replace(/\\/g, '/')
-    // Re-encode each segment so file:// URL is valid (handles Cyrillic, spaces)
-    const encodedPath = normalized
+
+    // Resolve to absolute path and check for path traversal
+    const resolvedPath = resolve(normalize(rawPath))
+
+    // Build list of allowed directories
+    const allowedDirs: string[] = [app.getPath('userData')]
+    try {
+      const db = getDatabase()
+      const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
+      if (row?.value) allowedDirs.push(resolve(normalize(row.value)))
+    } catch { /* DB not ready yet — only userData allowed */ }
+
+    const normalizedResolved = resolvedPath.replace(/\\/g, '/').toLowerCase()
+    const isAllowed = allowedDirs.some((dir) => {
+      const normalizedDir = resolve(normalize(dir)).replace(/\\/g, '/').toLowerCase()
+      return normalizedResolved.startsWith(normalizedDir + '/')
+    })
+
+    if (!isAllowed) {
+      console.warn(`[safe-file] Blocked access to: ${resolvedPath}`)
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    // Normalize for file:// URL
+    const forUrl = resolvedPath.replace(/\\/g, '/')
+    const encodedPath = forUrl
       .split('/')
       .map((seg, i) => (i === 0 ? seg : encodeURIComponent(seg)))
       .join('/')

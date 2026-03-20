@@ -1,8 +1,9 @@
-import { ipcMain, dialog, BrowserWindow, app, shell } from 'electron'
-import { readdirSync, statSync } from 'fs'
+import { dialog, BrowserWindow, app, shell } from 'electron'
+import { promises as fsp } from 'fs'
 import { join, extname, basename } from 'path'
 import { getDatabase } from '../db/connection'
 import { IPC } from '@shared/ipc-channels'
+import { safeHandle } from './safe-handle'
 import {
   ranks,
   statusTypes,
@@ -19,6 +20,8 @@ import {
   orders,
   orderItems,
   leaveRecords,
+  leaveTypes,
+  leaveTypeAliases,
   documentTemplates,
   auditLog
 } from '../db/schema'
@@ -41,10 +44,10 @@ import {
 
 export function registerIpcHandlers(): void {
   // App version
-  ipcMain.handle(IPC.APP_VERSION, () => app.getVersion())
+  safeHandle(IPC.APP_VERSION, () => app.getVersion())
 
   // DB Health Check
-  ipcMain.handle(IPC.DB_HEALTH, () => {
+  safeHandle(IPC.DB_HEALTH, () => {
     try {
       const db = getDatabase()
       const result = db.select().from(ranks).limit(1).all()
@@ -55,13 +58,13 @@ export function registerIpcHandlers(): void {
   })
 
   // Settings
-  ipcMain.handle(IPC.SETTINGS_GET, (_event, key: string) => {
+  safeHandle(IPC.SETTINGS_GET, (_event, key: string) => {
     const db = getDatabase()
     const result = db.select().from(settings).where(eq(settings.key, key)).get()
     return result?.value ?? null
   })
 
-  ipcMain.handle(IPC.SETTINGS_SET, (_event, key: string, value: string) => {
+  safeHandle(IPC.SETTINGS_SET, (_event, key: string, value: string) => {
     const db = getDatabase()
     db.insert(settings)
       .values({ key, value })
@@ -70,7 +73,7 @@ export function registerIpcHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle(IPC.SETTINGS_GET_ALL, () => {
+  safeHandle(IPC.SETTINGS_GET_ALL, () => {
     const db = getDatabase()
     const rows = db.select().from(settings).all()
     const result: Record<string, string> = {}
@@ -83,7 +86,7 @@ export function registerIpcHandlers(): void {
   // ==================== PERSONNEL CRUD ====================
 
   // Personnel list with filters
-  ipcMain.handle(
+  safeHandle(
     IPC.PERSONNEL_LIST,
     (
       _event,
@@ -167,7 +170,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Personnel get by id
-  ipcMain.handle(IPC.PERSONNEL_GET, (_event, id: number) => {
+  safeHandle(IPC.PERSONNEL_GET, (_event, id: number) => {
     const db = getDatabase()
 
     const row = db
@@ -213,7 +216,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Personnel create
-  ipcMain.handle(IPC.PERSONNEL_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.PERSONNEL_CREATE, (_event, data: Record<string, unknown>) => {
     const parsed = personnelCreateSchema.safeParse(data)
     if (!parsed.success) {
       return { error: true, issues: parsed.error.issues }
@@ -251,7 +254,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Personnel update
-  ipcMain.handle(
+  safeHandle(
     IPC.PERSONNEL_UPDATE,
     (_event, id: number, data: Record<string, unknown>) => {
       const parsed = personnelUpdateSchema.safeParse(data)
@@ -305,7 +308,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Personnel delete (soft — set status to 'excluded')
-  ipcMain.handle(IPC.PERSONNEL_DELETE, (_event, id: number) => {
+  safeHandle(IPC.PERSONNEL_DELETE, (_event, id: number) => {
     const db = getDatabase()
 
     db.update(personnel)
@@ -326,7 +329,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Personnel search (alias — uses same logic as list with search filter)
-  ipcMain.handle(IPC.PERSONNEL_SEARCH, (_event, query: string) => {
+  safeHandle(IPC.PERSONNEL_SEARCH, (_event, query: string) => {
     const db = getDatabase()
     const pattern = `%${query}%`
 
@@ -365,7 +368,7 @@ export function registerIpcHandlers(): void {
   // ==================== POSITIONS CRUD ====================
 
   // Positions list with filters + occupant enrichment
-  ipcMain.handle(
+  safeHandle(
     IPC.POSITIONS_LIST,
     (
       _event,
@@ -466,7 +469,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Position get by id
-  ipcMain.handle(IPC.POSITIONS_GET, (_event, id: number) => {
+  safeHandle(IPC.POSITIONS_GET, (_event, id: number) => {
     const db = getDatabase()
 
     const pos = db
@@ -514,7 +517,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Position create
-  ipcMain.handle(IPC.POSITIONS_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.POSITIONS_CREATE, (_event, data: Record<string, unknown>) => {
     const parsed = positionCreateSchema.safeParse(data)
     if (!parsed.success) {
       return { error: true, issues: parsed.error.issues }
@@ -548,7 +551,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Position update
-  ipcMain.handle(
+  safeHandle(
     IPC.POSITIONS_UPDATE,
     (_event, id: number, data: Record<string, unknown>) => {
       const parsed = positionUpdateSchema.safeParse(data)
@@ -587,7 +590,7 @@ export function registerIpcHandlers(): void {
 
   // ==================== SUBDIVISIONS TREE ====================
 
-  ipcMain.handle(IPC.SUBDIVISIONS_TREE, () => {
+  safeHandle(IPC.SUBDIVISIONS_TREE, () => {
     const db = getDatabase()
 
     const allSubs = db.select().from(subdivisions).orderBy(asc(subdivisions.sortOrder)).all()
@@ -664,7 +667,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Subdivision update
-  ipcMain.handle(
+  safeHandle(
     IPC.SUBDIVISIONS_UPDATE,
     (_event, id: number, data: Record<string, unknown>) => {
       const db = getDatabase()
@@ -685,32 +688,32 @@ export function registerIpcHandlers(): void {
 
   // ==================== LOOKUPS ====================
 
-  ipcMain.handle(IPC.RANKS_LIST, () => {
+  safeHandle(IPC.RANKS_LIST, () => {
     const db = getDatabase()
     return db.select().from(ranks).all()
   })
 
-  ipcMain.handle(IPC.STATUS_TYPES_LIST, () => {
+  safeHandle(IPC.STATUS_TYPES_LIST, () => {
     const db = getDatabase()
     return db.select().from(statusTypes).all()
   })
 
-  ipcMain.handle(IPC.SUBDIVISIONS_LIST, () => {
+  safeHandle(IPC.SUBDIVISIONS_LIST, () => {
     const db = getDatabase()
     return db.select().from(subdivisions).all()
   })
 
-  ipcMain.handle(IPC.BLOOD_TYPES_LIST, () => {
+  safeHandle(IPC.BLOOD_TYPES_LIST, () => {
     const db = getDatabase()
     return db.select().from(bloodTypes).all()
   })
 
-  ipcMain.handle(IPC.CONTRACT_TYPES_LIST, () => {
+  safeHandle(IPC.CONTRACT_TYPES_LIST, () => {
     const db = getDatabase()
     return db.select().from(contractTypes).all()
   })
 
-  ipcMain.handle(IPC.EDUCATION_LEVELS_LIST, () => {
+  safeHandle(IPC.EDUCATION_LEVELS_LIST, () => {
     const db = getDatabase()
     return db.select().from(educationLevels).all()
   })
@@ -718,7 +721,7 @@ export function registerIpcHandlers(): void {
   // ==================== IMPORT ====================
 
   // Open file dialog
-  ipcMain.handle(
+  safeHandle(
     IPC.OPEN_FILE_DIALOG,
     async (_event, filters?: { name: string; extensions: string[] }[]) => {
       const win = BrowserWindow.getFocusedWindow()
@@ -732,7 +735,7 @@ export function registerIpcHandlers(): void {
   )
 
   // EJOOS preview (parse only, no DB writes)
-  ipcMain.handle(IPC.IMPORT_EJOOS_PREVIEW, (_event, filePath: string) => {
+  safeHandle(IPC.IMPORT_EJOOS_PREVIEW, (_event, filePath: string) => {
     try {
       return parseEjoosFile(filePath)
     } catch (error) {
@@ -741,7 +744,7 @@ export function registerIpcHandlers(): void {
   })
 
   // EJOOS confirm (parse + write to DB)
-  ipcMain.handle(IPC.IMPORT_EJOOS_CONFIRM, (_event, filePath: string) => {
+  safeHandle(IPC.IMPORT_EJOOS_CONFIRM, (_event, filePath: string) => {
     try {
       const parsed = parseEjoosFile(filePath)
       return importEjoos(parsed)
@@ -755,7 +758,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Data.xlsx import (parse + enrich personnel)
-  ipcMain.handle(IPC.IMPORT_DATA, (_event, filePath: string) => {
+  safeHandle(IPC.IMPORT_DATA, (_event, filePath: string) => {
     try {
       // Get existing IPNs for matching
       const db = getDatabase()
@@ -786,7 +789,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Impulse Toolkit import
-  ipcMain.handle(IPC.IMPORT_IMPULSE, (_event, filePath: string) => {
+  safeHandle(IPC.IMPORT_IMPULSE, (_event, filePath: string) => {
     try {
       const parsed = parseImpulseFile(filePath)
       const result = importImpulse(parsed.records)
@@ -805,7 +808,7 @@ export function registerIpcHandlers(): void {
   // ==================== MOVEMENTS ====================
 
   // Movements list with filters
-  ipcMain.handle(
+  safeHandle(
     IPC.MOVEMENTS_LIST,
     (
       _event,
@@ -906,7 +909,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Movements create
-  ipcMain.handle(IPC.MOVEMENTS_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.MOVEMENTS_CREATE, (_event, data: Record<string, unknown>) => {
     console.log('[ipc] MOVEMENTS_CREATE data:', JSON.stringify(data))
 
     const parsed = movementCreateSchema.safeParse(data)
@@ -993,7 +996,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Movements get by person
-  ipcMain.handle(IPC.MOVEMENTS_GET_BY_PERSON, (_event, personnelId: number) => {
+  safeHandle(IPC.MOVEMENTS_GET_BY_PERSON, (_event, personnelId: number) => {
     const db = getDatabase()
 
     const rows = db
@@ -1017,7 +1020,7 @@ export function registerIpcHandlers(): void {
   // ==================== STATUS HISTORY ====================
 
   // Status history list with filters
-  ipcMain.handle(
+  safeHandle(
     IPC.STATUS_HISTORY_LIST,
     (
       _event,
@@ -1115,7 +1118,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Status history create
-  ipcMain.handle(IPC.STATUS_HISTORY_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.STATUS_HISTORY_CREATE, (_event, data: Record<string, unknown>) => {
     console.log('[ipc] STATUS_HISTORY_CREATE data:', JSON.stringify(data))
 
     const parsed = statusHistoryCreateSchema.safeParse(data)
@@ -1180,7 +1183,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Status history get by person
-  ipcMain.handle(IPC.STATUS_HISTORY_GET_BY_PERSON, (_event, personnelId: number) => {
+  safeHandle(IPC.STATUS_HISTORY_GET_BY_PERSON, (_event, personnelId: number) => {
     const db = getDatabase()
 
     const rows = db
@@ -1208,7 +1211,7 @@ export function registerIpcHandlers(): void {
   // ==================== ATTENDANCE ====================
 
   // Get month attendance grid
-  ipcMain.handle(
+  safeHandle(
     IPC.ATTENDANCE_GET_MONTH,
     (_event, year: number, month: number, subdivisionCode?: string) => {
       const db = getDatabase()
@@ -1272,7 +1275,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Set single day attendance
-  ipcMain.handle(
+  safeHandle(
     IPC.ATTENDANCE_SET_DAY,
     (_event, personnelId: number, date: string, statusCode: string) => {
       const db = getDatabase()
@@ -1319,7 +1322,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Snapshot: fill attendance for all active personnel from their currentStatusCode
-  ipcMain.handle(IPC.ATTENDANCE_SNAPSHOT, (_event, date: string) => {
+  safeHandle(IPC.ATTENDANCE_SNAPSHOT, (_event, date: string) => {
     const db = getDatabase()
 
     // Get all status_types for presenceGroup mapping
@@ -1383,7 +1386,7 @@ export function registerIpcHandlers(): void {
 
   // ==================== EXPORT ====================
 
-  ipcMain.handle(IPC.EXPORT_EJOOS, async () => {
+  safeHandle(IPC.EXPORT_EJOOS, async () => {
     try {
       return await exportEjoos()
     } catch (err) {
@@ -1392,7 +1395,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.EXPORT_CSV, async () => {
+  safeHandle(IPC.EXPORT_CSV, async () => {
     try {
       return await exportCsv()
     } catch (err) {
@@ -1410,7 +1413,7 @@ export function registerIpcHandlers(): void {
     console.error('[ipc] seedDefaultTemplates error:', err)
   }
 
-  ipcMain.handle(IPC.TEMPLATES_LIST, () => {
+  safeHandle(IPC.TEMPLATES_LIST, () => {
     try {
       return listTemplates()
     } catch (err) {
@@ -1419,7 +1422,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.TEMPLATES_GET_TAGS, (_event, templateId: number) => {
+  safeHandle(IPC.TEMPLATES_GET_TAGS, (_event, templateId: number) => {
     try {
       return getTemplateTagsById(templateId)
     } catch (err) {
@@ -1428,7 +1431,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.DOCUMENTS_GENERATE, (_event, request) => {
+  safeHandle(IPC.DOCUMENTS_GENERATE, (_event, request) => {
     try {
       return generateDocument(request)
     } catch (err) {
@@ -1437,7 +1440,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.DOCUMENTS_LIST, (_event, filters?) => {
+  safeHandle(IPC.DOCUMENTS_LIST, (_event, filters?) => {
     try {
       return listGeneratedDocuments(filters)
     } catch (err) {
@@ -1446,7 +1449,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.DOCUMENTS_OPEN, async (_event, filePath: string) => {
+  safeHandle(IPC.DOCUMENTS_OPEN, async (_event, filePath: string) => {
     try {
       await openDocument(filePath)
       return { success: true }
@@ -1456,7 +1459,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.DOCUMENTS_DELETE, (_event, id: number) => {
+  safeHandle(IPC.DOCUMENTS_DELETE, (_event, id: number) => {
     try {
       return deleteGeneratedDocument(id)
     } catch (err) {
@@ -1467,7 +1470,7 @@ export function registerIpcHandlers(): void {
 
   // ==================== ORDERS ====================
 
-  ipcMain.handle(IPC.ORDERS_LIST, (_event, filters?: {
+  safeHandle(IPC.ORDERS_LIST, (_event, filters?: {
     search?: string
     orderType?: string
     dateFrom?: string
@@ -1521,7 +1524,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.ORDERS_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.ORDERS_CREATE, (_event, data: Record<string, unknown>) => {
     try {
       const validated = orderCreateSchema.parse(data)
       const db = getDatabase()
@@ -1578,7 +1581,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.ORDERS_GET, (_event, id: number) => {
+  safeHandle(IPC.ORDERS_GET, (_event, id: number) => {
     try {
       const db = getDatabase()
       const order = db.select().from(orders).where(eq(orders.id, id)).get()
@@ -1598,7 +1601,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.ORDERS_DELETE, (_event, id: number) => {
+  safeHandle(IPC.ORDERS_DELETE, (_event, id: number) => {
     try {
       const db = getDatabase()
 
@@ -1625,9 +1628,53 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // ==================== LEAVE TYPES (довідник) ====================
+
+  safeHandle(IPC.LEAVE_TYPES_LIST, () => {
+    try {
+      const db = getDatabase()
+      return db.select().from(leaveTypes).orderBy(asc(leaveTypes.sortOrder)).all()
+    } catch (err) {
+      console.error('[ipc] LEAVE_TYPES_LIST error:', err)
+      return []
+    }
+  })
+
+  // Resolve leaveType name (or alias) → { statusCode, leaveTypeName }
+  safeHandle(IPC.LEAVE_TYPES_RESOLVE, (_event, input: string) => {
+    try {
+      const db = getDatabase()
+      const normalized = input.trim().toLowerCase()
+
+      // 1. Direct match by name
+      const direct = db.select().from(leaveTypes)
+        .where(sql`lower(${leaveTypes.name}) = ${normalized}`)
+        .get()
+      if (direct) return { found: true, statusCode: direct.statusCode, leaveTypeName: direct.name }
+
+      // 2. Alias match
+      const aliasRow = db.select({
+        alias: leaveTypeAliases.alias,
+        leaveTypeId: leaveTypeAliases.leaveTypeId
+      }).from(leaveTypeAliases)
+        .where(sql`lower(${leaveTypeAliases.alias}) = ${normalized}`)
+        .get()
+
+      if (aliasRow) {
+        const lt = db.select().from(leaveTypes).where(eq(leaveTypes.id, aliasRow.leaveTypeId)).get()
+        if (lt) return { found: true, statusCode: lt.statusCode, leaveTypeName: lt.name }
+      }
+
+      return { found: false, statusCode: null, leaveTypeName: null }
+    } catch (err) {
+      console.error('[ipc] LEAVE_TYPES_RESOLVE error:', err)
+      return { found: false, statusCode: null, leaveTypeName: null }
+    }
+  })
+
   // ==================== LEAVE RECORDS ====================
 
-  ipcMain.handle(IPC.LEAVE_LIST, (_event, filters?: {
+  safeHandle(IPC.LEAVE_LIST, (_event, filters?: {
     search?: string
     leaveType?: string
     personnelId?: number
@@ -1703,7 +1750,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.LEAVE_CREATE, (_event, data: Record<string, unknown>) => {
+  safeHandle(IPC.LEAVE_CREATE, (_event, data: Record<string, unknown>) => {
     try {
       const validated = leaveRecordCreateSchema.parse(data)
       const db = getDatabase()
@@ -1726,18 +1773,48 @@ export function registerIpcHandlers(): void {
 
       const leaveId = Number(result.lastInsertRowid)
 
-      // Set status to ВІДП if person is active
+      // Resolve leaveType → statusCode via leave_types + leave_type_aliases
+      const normalized = validated.leaveType.trim().toLowerCase()
+      let statusCode: string | null = null
+      let warning: string | undefined
+
+      // 1. Direct match by leave_types.name
+      const directMatch = db.select().from(leaveTypes)
+        .where(sql`lower(${leaveTypes.name}) = ${normalized}`)
+        .get()
+
+      if (directMatch) {
+        statusCode = directMatch.statusCode
+      } else {
+        // 2. Alias match
+        const aliasMatch = db.select({
+          leaveTypeId: leaveTypeAliases.leaveTypeId
+        }).from(leaveTypeAliases)
+          .where(sql`lower(${leaveTypeAliases.alias}) = ${normalized}`)
+          .get()
+
+        if (aliasMatch) {
+          const lt = db.select().from(leaveTypes).where(eq(leaveTypes.id, aliasMatch.leaveTypeId)).get()
+          if (lt) statusCode = lt.statusCode
+        }
+      }
+
+      if (!statusCode) {
+        console.warn(`[ipc] LEAVE_CREATE: невідомий тип відпустки "${validated.leaveType}", статус не встановлено`)
+        warning = `Невідомий тип відпустки "${validated.leaveType}". Статус особи не змінено. Перевірте довідник типів відпусток.`
+      }
+
       const person = db.select().from(personnel).where(eq(personnel.id, validated.personnelId)).get()
-      if (person && person.status === 'active') {
+      if (statusCode && person && person.status === 'active') {
         db.update(personnel)
-          .set({ currentStatusCode: 'ВІДП' })
+          .set({ currentStatusCode: statusCode })
           .where(eq(personnel.id, validated.personnelId))
           .run()
 
         db.insert(statusHistory)
           .values({
             personnelId: validated.personnelId,
-            statusCode: 'ВІДП',
+            statusCode,
             dateFrom: validated.startDate,
             dateTo: validated.endDate,
             comment: `Відпустка: ${validated.leaveType}`
@@ -1754,14 +1831,14 @@ export function registerIpcHandlers(): void {
         })
         .run()
 
-      return { success: true, id: leaveId }
+      return { success: true, id: leaveId, warning }
     } catch (err) {
       console.error('[ipc] LEAVE_CREATE error:', err)
       return { success: false, error: String(err) }
     }
   })
 
-  ipcMain.handle(IPC.LEAVE_GET, (_event, id: number) => {
+  safeHandle(IPC.LEAVE_GET, (_event, id: number) => {
     try {
       const db = getDatabase()
       const record = db.select().from(leaveRecords).where(eq(leaveRecords.id, id)).get()
@@ -1783,7 +1860,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.LEAVE_DELETE, (_event, id: number) => {
+  safeHandle(IPC.LEAVE_DELETE, (_event, id: number) => {
     try {
       const db = getDatabase()
       db.delete(leaveRecords).where(eq(leaveRecords.id, id)).run()
@@ -1804,7 +1881,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.LEAVE_GENERATE_TICKET, (_event, leaveId: number) => {
+  safeHandle(IPC.LEAVE_GENERATE_TICKET, (_event, leaveId: number) => {
     try {
       const db = getDatabase()
       const record = db.select().from(leaveRecords).where(eq(leaveRecords.id, leaveId)).get()
@@ -1866,7 +1943,7 @@ export function registerIpcHandlers(): void {
 
   // ==================== STATISTICS ====================
 
-  ipcMain.handle(IPC.STATISTICS_SUMMARY, (_event, subdivision?: string) => {
+  safeHandle(IPC.STATISTICS_SUMMARY, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
@@ -1986,7 +2063,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.STATISTICS_BY_STATUS, (_event, subdivision?: string) => {
+  safeHandle(IPC.STATISTICS_BY_STATUS, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
@@ -2025,7 +2102,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.STATISTICS_BY_SUBDIVISION, (_event, subdivision?: string) => {
+  safeHandle(IPC.STATISTICS_BY_SUBDIVISION, (_event, subdivision?: string) => {
     try {
       const db = getDatabase()
 
@@ -2082,14 +2159,14 @@ export function registerIpcHandlers(): void {
   // ==================== DOCS ====================
 
   // Get configured docs root path
-  ipcMain.handle(IPC.DOCS_GET_ROOT, () => {
+  safeHandle(IPC.DOCS_GET_ROOT, () => {
     const db = getDatabase()
     const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
     return row?.value ?? null
   })
 
   // Save docs root path
-  ipcMain.handle(IPC.DOCS_SET_ROOT, (_event, rootPath: string) => {
+  safeHandle(IPC.DOCS_SET_ROOT, (_event, rootPath: string) => {
     const db = getDatabase()
     db.insert(settings).values({ key: 'docsRootPath', value: rootPath })
       .onConflictDoUpdate({ target: settings.key, set: { value: rootPath } })
@@ -2098,7 +2175,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Open folder picker dialog
-  ipcMain.handle(IPC.DOCS_BROWSE_ROOT, async () => {
+  safeHandle(IPC.DOCS_BROWSE_ROOT, async () => {
     const win = BrowserWindow.getFocusedWindow()
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory'],
@@ -2108,8 +2185,8 @@ export function registerIpcHandlers(): void {
     return result.filePaths[0]
   })
 
-  // Scan files for a person by fullName
-  ipcMain.handle(IPC.DOCS_SCAN_PERSON, (_event, fullName: string) => {
+  // Scan files for a person by fullName (async to avoid blocking main process)
+  safeHandle(IPC.DOCS_SCAN_PERSON, async (_event, fullName: string) => {
     const db = getDatabase()
     const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
     const rootPath = row?.value
@@ -2121,12 +2198,14 @@ export function registerIpcHandlers(): void {
     // Scan 2 levels: rootPath/GROUP/PERSON_FOLDER
     let personFolder: string | null = null
     try {
-      for (const group of readdirSync(rootPath)) {
+      const groups = await fsp.readdir(rootPath)
+      for (const group of groups) {
         if (group === 'desktop.ini') continue
         const groupPath = join(rootPath, group)
         try {
-          if (!statSync(groupPath).isDirectory()) continue
-          for (const folder of readdirSync(groupPath)) {
+          if (!(await fsp.stat(groupPath)).isDirectory()) continue
+          const folders = await fsp.readdir(groupPath)
+          for (const folder of folders) {
             if (folder === 'desktop.ini') continue
             if (normalize(folder) === targetName) {
               personFolder = join(groupPath, folder)
@@ -2155,11 +2234,12 @@ export function registerIpcHandlers(): void {
     let photoPath: string | null = null
 
     try {
-      for (const file of readdirSync(personFolder)) {
+      const entries = await fsp.readdir(personFolder)
+      for (const file of entries) {
         if (file === 'desktop.ini') continue
         const filePath = join(personFolder, file)
         try {
-          if (!statSync(filePath).isFile()) continue
+          if (!(await fsp.stat(filePath)).isFile()) continue
         } catch { continue }
 
         const ext = extname(file).toLowerCase()
@@ -2170,7 +2250,6 @@ export function registerIpcHandlers(): void {
         let category = 'Інше'
 
         if (isImage) {
-          // Photo if no doc keywords and no " - " separator (doc scan naming pattern)
           const isDocScan = DOC_KEYWORDS.some(kw => nameLower.includes(kw)) || nameLower.includes(' - ')
           if (!isDocScan) {
             isPhoto = true
@@ -2198,16 +2277,16 @@ export function registerIpcHandlers(): void {
   })
 
   // Open file with system default app
-  ipcMain.handle(IPC.DOCS_OPEN_FILE, (_event, filePath: string) => {
+  safeHandle(IPC.DOCS_OPEN_FILE, (_event, filePath: string) => {
     shell.openPath(filePath)
   })
 
   // Missing documents report: scan all active personnel folders and return who is missing required docs
-  ipcMain.handle(IPC.DOCS_MISSING_REPORT, () => {
+  safeHandle(IPC.DOCS_MISSING_REPORT, async () => {
     const db = getDatabase()
     const row = db.select({ value: settings.value }).from(settings).where(eq(settings.key, 'docsRootPath')).get()
     const rootPath = row?.value
-    if (!rootPath) return []
+    if (!rootPath) return null
 
     const allPersonnel = db
       .select({ id: personnel.id, fullName: personnel.fullName, currentSubdivision: personnel.currentSubdivision })
@@ -2220,17 +2299,19 @@ export function registerIpcHandlers(): void {
     const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp'])
     const DOC_KEYWORDS = ['паспорт', 'квиток', 'убд', 'іпн', 'автобіог', 'контракт', 'наказ', 'id карт', 'id-карт']
 
-    // Build index: normalized folder name → folder path
+    // Build index: normalized folder name → folder path (async)
     const folderIndex = new Map<string, string>()
     try {
-      for (const group of readdirSync(rootPath)) {
+      const groups = await fsp.readdir(rootPath)
+      for (const group of groups) {
         if (group === 'desktop.ini') continue
         const groupPath = join(rootPath, group)
         try {
-          if (!statSync(groupPath).isDirectory()) continue
-          for (const folder of readdirSync(groupPath)) {
+          if (!(await fsp.stat(groupPath)).isDirectory()) continue
+          const folders = await fsp.readdir(groupPath)
+          for (const folder of folders) {
             if (folder === 'desktop.ini') continue
-            try { if (!statSync(join(groupPath, folder)).isDirectory()) continue } catch { continue }
+            try { if (!(await fsp.stat(join(groupPath, folder))).isDirectory()) continue } catch { continue }
             folderIndex.set(normalize(folder), join(groupPath, folder))
           }
         } catch { /* skip */ }
@@ -2245,10 +2326,11 @@ export function registerIpcHandlers(): void {
       const categories = new Set<string>()
       if (personFolder) {
         try {
-          for (const file of readdirSync(personFolder)) {
+          const entries = await fsp.readdir(personFolder)
+          for (const file of entries) {
             if (file === 'desktop.ini') continue
             const filePath = join(personFolder, file)
-            try { if (!statSync(filePath).isFile()) continue } catch { continue }
+            try { if (!(await fsp.stat(filePath)).isFile()) continue } catch { continue }
             const ext = extname(file).toLowerCase()
             const nameLower = basename(file, ext).toLowerCase()
             const isImage = IMAGE_EXTS.has(ext)
@@ -2281,7 +2363,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ==================== STAFF ROSTER ====================
-  ipcMain.handle(IPC.STAFF_ROSTER, () => {
+  safeHandle(IPC.STAFF_ROSTER, () => {
     const db = getDatabase()
 
     // All active positions with subdivision info, ordered by positionIndex

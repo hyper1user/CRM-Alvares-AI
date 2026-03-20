@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Typography,
   Button,
@@ -27,21 +27,14 @@ import dayjs from 'dayjs'
 
 const { Title } = Typography
 
-const LEAVE_TYPES: Record<string, { label: string; color: string }> = {
-  'щорічна': { label: 'Щорічна', color: 'green' },
-  'основна': { label: 'Основна', color: 'blue' },
-  'додаткова': { label: 'Додаткова', color: 'cyan' },
-  'за сімейними': { label: 'За сімейними обставинами', color: 'orange' },
-  'навчальна': { label: 'Навчальна', color: 'purple' },
-  'по хворобі': { label: 'По хворобі', color: 'red' },
-  'реабілітаційна': { label: 'Реабілітаційна', color: 'magenta' },
-  'соціальна': { label: 'Соціальна', color: 'gold' }
+interface LeaveTypeEntry {
+  id: number
+  name: string
+  label: string
+  statusCode: string
+  colorTag: string | null
+  sortOrder: number
 }
-
-const LEAVE_TYPE_OPTIONS = Object.entries(LEAVE_TYPES).map(([value, { label }]) => ({
-  value,
-  label
-}))
 
 export default function LeaveRecords(): JSX.Element {
   const [search, setSearch] = useState('')
@@ -50,6 +43,20 @@ export default function LeaveRecords(): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
+
+  // Довідник типів відпусток з БД
+  const [leaveTypesRef, setLeaveTypesRef] = useState<LeaveTypeEntry[]>([])
+
+  const loadLeaveTypes = useCallback(async () => {
+    const types = await window.api.leaveTypesList()
+    setLeaveTypesRef(types ?? [])
+  }, [])
+
+  useEffect(() => { loadLeaveTypes() }, [loadLeaveTypes])
+
+  // Lookup maps
+  const leaveTypeMap = new Map(leaveTypesRef.map((lt) => [lt.name, lt]))
+  const leaveTypeOptions = leaveTypesRef.map((lt) => ({ value: lt.name, label: lt.label }))
 
   const handleCreate = async (): Promise<void> => {
     try {
@@ -70,7 +77,11 @@ export default function LeaveRecords(): JSX.Element {
       })
 
       if (result?.success) {
-        message.success('Відпустку створено')
+        if (result.warning) {
+          message.warning(result.warning, 6)
+        } else {
+          message.success('Відпустку створено')
+        }
         setDrawerOpen(false)
         form.resetFields()
         refetch()
@@ -128,9 +139,9 @@ export default function LeaveRecords(): JSX.Element {
       dataIndex: 'leaveType',
       width: 160,
       render: (_, record) => {
-        const info = LEAVE_TYPES[record.leaveType]
+        const info = leaveTypeMap.get(record.leaveType)
         return info ? (
-          <Tag color={info.color}>{info.label}</Tag>
+          <Tag color={info.colorTag ?? undefined}>{info.label}</Tag>
         ) : (
           <Tag>{record.leaveType}</Tag>
         )
@@ -221,7 +232,7 @@ export default function LeaveRecords(): JSX.Element {
           onChange={setLeaveType}
           allowClear
           style={{ width: 200 }}
-          options={LEAVE_TYPE_OPTIONS}
+          options={leaveTypeOptions}
         />
       </Space>
 
@@ -264,7 +275,7 @@ export default function LeaveRecords(): JSX.Element {
             label="Тип відпустки"
             rules={[{ required: true, message: 'Оберіть тип' }]}
           >
-            <Select placeholder="Оберіть тип відпустки" options={LEAVE_TYPE_OPTIONS} />
+            <Select placeholder="Оберіть тип відпустки" options={leaveTypeOptions} />
           </Form.Item>
 
           <Space style={{ width: '100%' }} size="middle">

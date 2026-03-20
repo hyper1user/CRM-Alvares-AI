@@ -57,9 +57,17 @@ export function closeDatabase(): void {
   }
 }
 
+// ============================================================
+// DDL — єдине джерело істини для структури БД.
+// Drizzle-схема (schema.ts) має відповідати цьому DDL 1:1.
+// Для нових БД всі колонки створюються одразу.
+// Для існуючих БД (оновлення) — migratePersonnel() додає
+// відсутні колонки через ALTER TABLE.
+// ============================================================
 function createTables(sqliteDb: InstanceType<typeof Database>): void {
   sqliteDb.exec(`
-    -- Довідники
+    -- ==================== ДОВІДНИКИ ====================
+
     CREATE TABLE IF NOT EXISTS ranks (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
@@ -153,11 +161,28 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       name TEXT NOT NULL UNIQUE
     );
 
-    -- Робочі таблиці
+    CREATE TABLE IF NOT EXISTS leave_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      status_code TEXT NOT NULL,
+      color_tag TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_type_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alias TEXT NOT NULL UNIQUE,
+      leave_type_id INTEGER NOT NULL REFERENCES leave_types(id)
+    );
+
+    -- ==================== РОБОЧІ ТАБЛИЦІ ====================
+
     CREATE TABLE IF NOT EXISTS personnel (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ipn TEXT NOT NULL UNIQUE,
       rank_id INTEGER REFERENCES ranks(id),
+
       last_name TEXT NOT NULL,
       first_name TEXT NOT NULL,
       patronymic TEXT,
@@ -165,21 +190,26 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       callsign TEXT,
       date_of_birth TEXT,
       phone TEXT,
+
       enrollment_order_date TEXT,
       enrollment_order_info TEXT,
       arrived_from TEXT,
       arrival_position_idx TEXT,
       enrollment_date TEXT,
       enrollment_order_num TEXT,
+
       current_position_idx TEXT,
       current_status_code TEXT,
       current_subdivision TEXT,
+
       rank_order_date TEXT,
       rank_order_info TEXT,
+
       service_type TEXT,
       contract_date TEXT,
       contract_type_id INTEGER REFERENCES contract_types(id),
       contract_end_date TEXT,
+
       id_doc_series TEXT,
       id_doc_number TEXT,
       id_doc_type TEXT,
@@ -189,9 +219,11 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       passport_issued_date TEXT,
       military_id_series TEXT,
       military_id_number TEXT,
+
       ubd_series TEXT,
       ubd_number TEXT,
       ubd_date TEXT,
+
       gender TEXT,
       blood_type_id INTEGER REFERENCES blood_types(id),
       fitness TEXT,
@@ -199,6 +231,7 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       education_institution TEXT,
       education_year TEXT,
       military_education TEXT,
+
       birthplace TEXT,
       address_actual TEXT,
       address_registered TEXT,
@@ -206,15 +239,61 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       relatives_info TEXT,
       nationality TEXT,
       citizenship TEXT,
+
       conscription_date TEXT,
       tcc_id INTEGER REFERENCES tcc_offices(id),
       oblast TEXT,
       personal_number TEXT,
       specialty_code TEXT,
       photo_path TEXT,
+
       status TEXT DEFAULT 'active',
       additional_info TEXT,
       notes TEXT,
+
+      -- Закордонний паспорт
+      foreign_passport_series TEXT,
+      foreign_passport_number TEXT,
+      foreign_passport_issued_by TEXT,
+      foreign_passport_issued_date TEXT,
+
+      -- ВК додатково
+      military_id_issued_by TEXT,
+      military_id_issued_date TEXT,
+
+      -- УБД додатково
+      ubd_issued_by TEXT,
+
+      -- Фінансові дані
+      iban TEXT,
+      bank_card TEXT,
+      bank_name TEXT,
+
+      -- Посвідчення водія
+      driver_license_issued_by TEXT,
+      driver_license_category TEXT,
+      driver_license_expiry TEXT,
+      driver_license_issued_date TEXT,
+      driver_license_experience INTEGER,
+      driver_license_series TEXT,
+      driver_license_number TEXT,
+
+      -- Посвідчення тракториста
+      tractor_license_issued_by TEXT,
+      tractor_license_category TEXT,
+      tractor_license_expiry TEXT,
+      tractor_license_issued_date TEXT,
+      tractor_license_experience INTEGER,
+      tractor_license_series TEXT,
+      tractor_license_number TEXT,
+
+      -- Базова загальновійськова підготовка
+      basic_training_date_from TEXT,
+      basic_training_date_to TEXT,
+      basic_training_place TEXT,
+      basic_training_commander TEXT,
+      basic_training_notes TEXT,
+
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -423,7 +502,7 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       timestamp TEXT DEFAULT (datetime('now'))
     );
 
-    -- Індекси
+    -- ==================== ІНДЕКСИ ====================
     CREATE INDEX IF NOT EXISTS idx_personnel_ipn ON personnel(ipn);
     CREATE INDEX IF NOT EXISTS idx_personnel_status ON personnel(status);
     CREATE INDEX IF NOT EXISTS idx_personnel_position ON personnel(current_position_idx);
@@ -446,8 +525,14 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
 
   console.log('[db] Таблиці та індекси створено')
 
-  // Migrate: add new columns if they don't exist
-  const newColumns: [string, string][] = [
+  // Міграція для існуючих БД: додаємо колонки, яких може не бути
+  // у БД створених до v0.4.0 (ці колонки вже включені в CREATE TABLE
+  // вище, тому для нових БД ALTER TABLE не спрацює — і це нормально)
+  migratePersonnel(sqliteDb)
+}
+
+function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
+  const expectedColumns: [string, string][] = [
     ['foreign_passport_series', 'TEXT'],
     ['foreign_passport_number', 'TEXT'],
     ['foreign_passport_issued_by', 'TEXT'],
@@ -484,10 +569,14 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
     .all() as { name: string }[]
   const existingColNames = new Set(existingCols.map((c) => c.name))
 
-  for (const [col, type] of newColumns) {
+  let migrated = 0
+  for (const [col, type] of expectedColumns) {
     if (!existingColNames.has(col)) {
       sqliteDb.exec(`ALTER TABLE personnel ADD COLUMN ${col} ${type}`)
-      console.log(`[db] Додано колонку: personnel.${col}`)
+      migrated++
     }
+  }
+  if (migrated > 0) {
+    console.log(`[db] Міграція personnel: додано ${migrated} колонок`)
   }
 }

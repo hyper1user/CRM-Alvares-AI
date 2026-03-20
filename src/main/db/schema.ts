@@ -386,6 +386,25 @@ export const irrecoverableLosses = sqliteTable('irrecoverable_losses', {
   createdAt: text('created_at').default(sql`(datetime('now'))`)
 })
 
+// Довідник типів відпусток з прив'язкою до коду статусу
+export const leaveTypes = sqliteTable('leave_types', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),
+  label: text('label').notNull(),
+  statusCode: text('status_code').notNull(),
+  colorTag: text('color_tag'),
+  sortOrder: integer('sort_order').notNull().default(0)
+})
+
+// Синоніми/аліаси типів відпусток (для вільного вводу/імпорту)
+export const leaveTypeAliases = sqliteTable('leave_type_aliases', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  alias: text('alias').notNull().unique(),
+  leaveTypeId: integer('leave_type_id')
+    .notNull()
+    .references(() => leaveTypes.id)
+})
+
 export const leaveRecords = sqliteTable(
   'leave_records',
   {

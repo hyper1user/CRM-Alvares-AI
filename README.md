@@ -1,76 +1,77 @@
-<h1 align="center">electron-app</h1>
+# АльваресAI — Облік особового складу
 
-<p align="center">An Electron application with Vue3 and TypeScript</p>
+Desktop-додаток для обліку особового складу підрозділу. Замінює Excel-файл ЕЖООС повноцінною CRM-системою з довідниками, генерацією документів, табелем та статистикою.
 
-<p align="center">
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/electron" alt="electron-version">
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/electron-vite" alt="electron-vite-version" />
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/electron-builder" alt="electron-builder-version" />
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/vite" alt="vite-version" />
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/vue" alt="vue-version" />
-<img src="https://img.shields.io/github/package-json/dependency-version/alex8088/electron-vite-boilerplate/dev/typescript" alt="typescript-version" />
-</p>
+## Стек
 
-<p align='center'>
-<img src='./build/electron-vite-vue-ts.png'/>
-</p>
+- **Electron 33** + **React 19** + **TypeScript 5.6**
+- **electron-vite** — збірка та HMR
+- **Ant Design 5** + **ProComponents** + **Tailwind CSS 4** — UI
+- **better-sqlite3** + **Drizzle ORM** — локальна БД
+- **Zod** — валідація IPC
+- **SheetJS** (імпорт) + **ExcelJS** (експорт) + **docxtemplater** (Word-документи)
+- **Zustand** — стейт-менеджмент
+- **Recharts** — графіки та статистика
 
-## Features
+## Модулі
 
-- 💡 Optimize asset handling
-- 🚀 Fast HMR for renderer processes
-- 🔥 Hot reloading for main process and preload scripts
-- 🔌 Easy to debug
-- 🔒 Compile to v8 bytecode to protect source code
+1. **Особовий склад** — CRUD, пошук, картка ОС з фото
+2. **Штат та посади** — штатно-посадовий облік, орг. дерево, штатний розпис для друку
+3. **Переміщення** — wizard, ланцюжок переміщень, timeline
+4. **Статуси** — Kanban, каскад, 21 тип статусу
+5. **Табель та стройова записка** — помісячний табель, snapshot
+6. **Документи** — генератор документів (Word), накази, відпустки, поранення
+7. **Імпорт/Експорт** — ЕЖООС.xlsx, Data.xlsx, Імпульс Toolkit
+8. **Дашборд та статистика** — зведена інформація, графіки
 
-## Getting Started
+## Структура проєкту
 
-Read [documentation](https://electron-vite.org/) for more details.
-
-- [Configuring](https://electron-vite.org/config/)
-- [Development](https://electron-vite.org/guide/dev.html)
-- [Asset Handling](https://electron-vite.org/guide/assets.html)
-- [HMR](https://electron-vite.org/guide/hmr.html) & [Hot Reloading](https://electron-vite.org/guide/hot-reloading.html)
-- [Debugging](https://electron-vite.org/guide/debugging.html)
-- [Source code protection](https://electron-vite.org/guide/source-code-protection.html)
-- [Distribution](https://electron-vite.org/guide/distribution.html)
-- [Troubleshooting](https://electron-vite.org/guide/troubleshooting.html)
-
-You can also use the [create-electron](https://github.com/alex8088/quick-start/tree/master/packages/create-electron) tool to scaffold your project for other frameworks (e.g. `React`, `Svelte` or `Solid`).
-
-## Recommended IDE Setup
-
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [TypeScript Vue Plugin (Volar)](https://marketplace.visualstudio.com/items?itemName=Vue.vscode-typescript-vue-plugin)
-
-## Project Setup
-
-### Install
-
-```bash
-$ npm install
+```
+src/
+├── main/           # Electron main process (БД, IPC handlers, сервіси)
+│   ├── db/         # Schema, connection, seed, міграції
+│   ├── ipc/        # IPC handlers (Zod validated)
+│   ├── import/     # Парсери імпорту (ЕЖООС, Data, Імпульс)
+│   ├── export/     # Експорт (ЕЖООС, CSV)
+│   └── documents/  # Генерація документів (docxtemplater)
+├── renderer/       # React UI
+│   └── src/
+│       ├── pages/        # Сторінки модулів
+│       ├── components/   # Компоненти
+│       ├── hooks/        # React hooks
+│       └── store/        # Zustand stores
+├── shared/         # Спільні типи, enum, валідатори
+│   ├── enums/      # Довідники (звання, статуси, категорії)
+│   ├── types/      # TypeScript типи
+│   └── validators.ts
+└── preload/        # contextBridge (renderer ↔ main)
 ```
 
-### Development
+## БД
+
+28 таблиць SQLite (15 довідникових + 15 робочих). Файл: `%APPDATA%/ejoos-plus/data/personnel.db`
+
+## Встановлення та запуск
 
 ```bash
-$ npm run dev
+# Встановлення залежностей
+pnpm install
+
+# Dev-режим з HMR
+pnpm dev
+
+# Збірка Windows .exe (NSIS installer)
+pnpm build:win
 ```
 
-### Build
+## Архітектура
 
-```bash
-# For windows
-$ npm run build:win
+- Вся комунікація renderer ↔ main через **IPC** з валідацією через **Zod**
+- Renderer **не має** прямого доступу до БД
+- **sandbox: true** + кастомний протокол `safe-file://` для безпечного доступу до локальних файлів
+- Автооновлення через **electron-updater** + GitHub Releases
+- Мова інтерфейсу: українська
 
-# For macOS
-$ npm run build:mac
+## Ліцензія
 
-# For Linux
-$ npm run build:linux
-```
-
-## Examples
-
-- [electron-vite-bytecode-example](https://github.com/alex8088/electron-vite-bytecode-example), source code protection
-- [electron-vite-decorator-example](https://github.com/alex8088/electron-vite-decorator-example), typescipt decorator
-- [electron-vite-worker-example](https://github.com/alex8088/electron-vite-worker-example), worker and fork
+Приватний проєкт.

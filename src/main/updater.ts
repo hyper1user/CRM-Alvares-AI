@@ -1,5 +1,6 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
+import { safeHandle } from './ipc/safe-handle'
 
 export type UpdaterStatus =
   | { state: 'idle' }
@@ -88,7 +89,7 @@ export function initAutoUpdater(): void {
   })
 
   // IPC: manual check from renderer
-  ipcMain.handle('updater:check', async () => {
+  safeHandle('updater:check', async () => {
     try {
       broadcast({ state: 'checking' })
       await autoUpdater.checkForUpdates()
@@ -99,10 +100,10 @@ export function initAutoUpdater(): void {
   })
 
   // IPC: get current status
-  ipcMain.handle('updater:get-status', () => currentStatus)
+  safeHandle('updater:get-status', () => currentStatus)
 
   // IPC: install downloaded update
-  ipcMain.handle('updater:install', () => {
+  safeHandle('updater:install', () => {
     autoUpdater.quitAndInstall()
   })
 

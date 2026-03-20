@@ -12,6 +12,8 @@ import {
   exclusionReasons,
   absenceReasons,
   lossTypes,
+  leaveTypes,
+  leaveTypeAliases,
   settings
 } from './schema'
 import { RANKS } from '@shared/enums/ranks'
@@ -164,6 +166,61 @@ export function seedDatabase(db: BetterSQLite3Database): void {
     }
   }
   console.log(`[seed] positions: ${SEED_POSITIONS.length} записів`)
+
+  // Типи відпусток (10 записів)
+  const LEAVE_TYPES_SEED = [
+    { name: 'щорічна', label: 'Щорічна', statusCode: 'ВП', colorTag: 'green', sortOrder: 1 },
+    { name: 'основна', label: 'Основна', statusCode: 'ВП', colorTag: 'blue', sortOrder: 2 },
+    { name: 'додаткова', label: 'Додаткова', statusCode: 'ВП', colorTag: 'cyan', sortOrder: 3 },
+    { name: 'навчальна', label: 'Навчальна', statusCode: 'ВП', colorTag: 'purple', sortOrder: 4 },
+    { name: 'соціальна', label: 'Соціальна', statusCode: 'ВП', colorTag: 'gold', sortOrder: 5 },
+    { name: 'за сімейними', label: 'За сімейними обставинами', statusCode: 'ВПС', colorTag: 'orange', sortOrder: 6 },
+    { name: 'по хворобі', label: 'По хворобі', statusCode: 'ВПХ', colorTag: 'red', sortOrder: 7 },
+    { name: 'реабілітаційна', label: 'Реабілітаційна', statusCode: 'ВПХ', colorTag: 'magenta', sortOrder: 8 },
+    { name: 'декретна', label: 'Декретна', statusCode: 'ДВП', colorTag: 'pink', sortOrder: 9 },
+    { name: 'по пораненню', label: 'По пораненню', statusCode: 'ВПП', colorTag: 'volcano', sortOrder: 10 }
+  ]
+
+  for (const lt of LEAVE_TYPES_SEED) {
+    db.insert(leaveTypes)
+      .values(lt)
+      .run()
+  }
+  console.log(`[seed] leave_types: ${LEAVE_TYPES_SEED.length} записів`)
+
+  // Аліаси типів відпусток
+  const allLeaveTypes = db.select().from(leaveTypes).all()
+  const ltNameToId = new Map(allLeaveTypes.map((lt) => [lt.name, lt.id]))
+
+  const LEAVE_ALIASES_SEED: { alias: string; leaveTypeName: string }[] = [
+    // Синоніми для "по хворобі"
+    { alias: 'для лікування', leaveTypeName: 'по хворобі' },
+    { alias: 'лікувальна', leaveTypeName: 'по хворобі' },
+    { alias: 'медична', leaveTypeName: 'по хворобі' },
+    // Синоніми для "по пораненню"
+    { alias: 'після поранення', leaveTypeName: 'по пораненню' },
+    { alias: 'поранення', leaveTypeName: 'по пораненню' },
+    // Синоніми для "за сімейними"
+    { alias: 'сімейна', leaveTypeName: 'за сімейними' },
+    { alias: 'за сімейними обставинами', leaveTypeName: 'за сімейними' },
+    // Синоніми для "щорічна"
+    { alias: 'чергова', leaveTypeName: 'щорічна' },
+    // Синоніми для "реабілітаційна"
+    { alias: 'реабілітація', leaveTypeName: 'реабілітаційна' },
+    // Синоніми для "декретна"
+    { alias: 'декрет', leaveTypeName: 'декретна' },
+    { alias: 'по вагітності', leaveTypeName: 'декретна' }
+  ]
+
+  for (const a of LEAVE_ALIASES_SEED) {
+    const leaveTypeId = ltNameToId.get(a.leaveTypeName)
+    if (leaveTypeId) {
+      db.insert(leaveTypeAliases)
+        .values({ alias: a.alias, leaveTypeId })
+        .run()
+    }
+  }
+  console.log(`[seed] leave_type_aliases: ${LEAVE_ALIASES_SEED.length} записів`)
 
   // Налаштування
   const defaultSettings = {

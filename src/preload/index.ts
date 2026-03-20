@@ -127,6 +127,10 @@ const api = {
   ordersGet: (id: number) => ipcRenderer.invoke(IPC.ORDERS_GET, id),
   ordersDelete: (id: number) => ipcRenderer.invoke(IPC.ORDERS_DELETE, id),
 
+  // Leave Types (довідник)
+  leaveTypesList: (): Promise<{ id: number; name: string; label: string; statusCode: string; colorTag: string | null; sortOrder: number }[]> =>
+    ipcRenderer.invoke(IPC.LEAVE_TYPES_LIST),
+
   // Leave Records
   leaveList: (filters?: {
     search?: string

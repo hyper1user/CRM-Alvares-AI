@@ -58,6 +58,10 @@ export const IPC = {
   ORDERS_GET: 'orders:get',
   ORDERS_DELETE: 'orders:delete',
 
+  // Leave Types (довідник)
+  LEAVE_TYPES_LIST: 'leave-types:list',
+  LEAVE_TYPES_RESOLVE: 'leave-types:resolve',
+
   // Leave
   LEAVE_LIST: 'leave:list',
   LEAVE_CREATE: 'leave:create',

@@ -28,7 +28,7 @@ interface PersonnelFormProps {
 export default function PersonnelForm({ open, onClose, onSaved, editRecord }: PersonnelFormProps) {
   const [form] = Form.useForm()
   const { message } = App.useApp()
-  const { ranks, bloodTypes, contractTypes, educationLevels, subdivisions, positions, loading } =
+  const { ranks, statusTypes, bloodTypes, contractTypes, educationLevels, subdivisions, positions, loading } =
     useLookups()
   const isEdit = !!editRecord
 
@@ -292,13 +292,12 @@ export default function PersonnelForm({ open, onClose, onSaved, editRecord }: Pe
             <Form.Item name="currentStatusCode" label="Статус">
               <Select
                 allowClear
-                options={[
-                  { label: 'На забезпеченні', value: 'IN_SUPPLY' },
-                  { label: 'У відпустці', value: 'ANNUAL_LEAVE' },
-                  { label: 'Госпіталізований', value: 'HOSPITALIZED' },
-                  { label: 'Відрядження', value: 'BUSINESS_TRIP' },
-                  { label: 'Навчання', value: 'TRAINING' }
-                ]}
+                showSearch
+                optionFilterProp="label"
+                options={statusTypes.map((st) => ({
+                  label: `${st.code} — ${st.name}`,
+                  value: st.code
+                }))}
               />
             </Form.Item>
           </Col>
