@@ -127,6 +127,14 @@ export function registerIpcHandlers(): void {
         )
       }
 
+      // v0.8.8: для вкладки «Виключені» сортуємо за датою виключення
+      // (новіші вгорі) — `updatedAt` оновлюється і в PERSONNEL_DELETE,
+      // і в MOVEMENTS_CREATE при `orderType='Виключення'`. Решта запитів —
+      // штатне сортування з v0.8.4 (за currentPositionIdx).
+      const primarySort = statusFilter === 'excluded'
+        ? desc(personnel.updatedAt)
+        : asc(personnel.currentPositionIdx)
+
       const result = db
         .select({
           id: personnel.id,
@@ -144,7 +152,7 @@ export function registerIpcHandlers(): void {
         .from(personnel)
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
         .where(and(...conditions))
-        .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
+        .orderBy(primarySort, asc(personnel.fullName))
         .all()
 
       // Enrich with position title if position index exists
