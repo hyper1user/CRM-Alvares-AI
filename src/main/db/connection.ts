@@ -562,6 +562,11 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
 
   // v0.8.2: синхронізація status_types зі значеннями ЕЖООС.xlsx
   syncStatusTypesFromEjoos(sqliteDb)
+
+  // v0.8.6: для тих, кого раніше виключили через wizard переміщень
+  // (orderType='Виключення'), але БД залишила personnel.status='active'
+  // через відсутню гілку в MOVEMENTS_CREATE — застосувати правильний стан.
+  fixExcludedFromMovements(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -698,5 +703,28 @@ function syncStatusTypesFromEjoos(sqliteDb: InstanceType<typeof Database>): void
   }
   if (updated > 0) {
     console.log(`[db] syncStatusTypesFromEjoos: оновлено ${updated} статусів`)
+  }
+}
+
+// v0.8.6: до v0.8.6 wizard переміщень з orderType='Виключення' створював
+// рядок у movements, але не міняв personnel.status — особа залишалась
+// active зі старою посадою/підрозділом/статусом. Ця міграція приводить
+// existуючі записи до коректного стану.
+function fixExcludedFromMovements(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET
+      status = 'excluded',
+      current_position_idx = NULL,
+      current_subdivision = NULL,
+      current_status_code = NULL
+    WHERE id IN (
+      SELECT m.personnel_id FROM movements m
+      WHERE m.is_active = 1 AND m.order_type = 'Виключення'
+    )
+    AND status = 'active'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] fixExcludedFromMovements: виключено ${changes.cnt} записів`)
   }
 }
