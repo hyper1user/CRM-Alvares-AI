@@ -1,21 +1,11 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Spin, Empty } from 'antd'
 import { PrinterOutlined, EditOutlined, TeamOutlined } from '@ant-design/icons'
-import type { SubdivisionTreeNode } from '@shared/types/position'
 import type { PersonnelListItem } from '@shared/types/personnel'
-import { useSubdivisionTree } from '../hooks/usePositions'
 import { usePersonnelList } from '../hooks/usePersonnel'
 import { useAppStore } from '../stores/app.store'
-
-function findByCode(nodes: SubdivisionTreeNode[], code: string): SubdivisionTreeNode | null {
-  for (const n of nodes) {
-    if (n.code === code) return n
-    const found = findByCode(n.children, code)
-    if (found) return found
-  }
-  return null
-}
+import { buildCompanyTree, getPlatoonCodeForPerson } from '@shared/utils/company-structure'
 
 function callsignInitials(callsign: string | null): string {
   if (!callsign) return '—'
@@ -25,38 +15,38 @@ function callsignInitials(callsign: string | null): string {
 export default function OrgStructure(): JSX.Element {
   const navigate = useNavigate()
   const globalSubdivision = useAppStore((s) => s.globalSubdivision)
-  const { data: treeData, loading: treeLoading } = useSubdivisionTree()
-  const { data: personnel } = usePersonnelList({
+  const { data: personnel, loading: personnelLoading } = usePersonnelList({
     subdivision: globalSubdivision,
     status: 'active',
   })
 
-  const root = useMemo(() => {
-    const g3 = findByCode(treeData, 'Г-3')
-    return g3 ?? treeData[0] ?? null
-  }, [treeData])
+  // v0.8.3: внутрішнє дерево 12 ШР — Управління / 1 ШВ / 2 ШВ / 3 ШВ /
+  // Розпорядження. Будується з positionIndex людей (Г03001..Г03113) +
+  // currentSubdivision='розпорядження' для 5-го взводу.
+  const root = useMemo(() => buildCompanyTree(personnel), [personnel])
 
-  const children = root?.children ?? []
-  const totalPersonnel = root?.personnelCount ?? personnel.length
-  const totalPositions = root?.positionCount ?? 0
-  const totalVacant = root?.vacantCount ?? 0
+  const children = root.children
+  const totalPersonnel = root.personnelCount
+  const totalPositions = root.positionCount
+  const totalVacant = root.vacantCount
   const fillPercent =
     totalPositions > 0
       ? Math.round(((totalPositions - totalVacant) / totalPositions) * 100)
       : 0
 
-  // personnel grouped by subdivision code
-  const personnelBySub = useMemo(() => {
+  // Згрупувати ОС за взводом 12 ШР (ключі — Г-3.1..Г-3.5)
+  const personnelByPlatoon = useMemo(() => {
     const m = new Map<string, PersonnelListItem[]>()
     for (const p of personnel) {
-      const k = p.currentSubdivision || ''
-      if (!m.has(k)) m.set(k, [])
-      m.get(k)!.push(p)
+      const platoon = getPlatoonCodeForPerson(p)
+      if (!platoon) continue
+      if (!m.has(platoon)) m.set(platoon, [])
+      m.get(platoon)!.push(p)
     }
     return m
   }, [personnel])
 
-  if (treeLoading) {
+  if (personnelLoading) {
     return (
       <div style={{ display: 'grid', placeItems: 'center', padding: 60 }}>
         <Spin size="large" />
@@ -64,7 +54,7 @@ export default function OrgStructure(): JSX.Element {
     )
   }
 
-  if (!root) {
+  if (children.length === 0 && totalPersonnel === 0) {
     return (
       <>
         <div className="page-header">
@@ -73,7 +63,7 @@ export default function OrgStructure(): JSX.Element {
           </div>
         </div>
         <div className="card" style={{ padding: 40 }}>
-          <Empty description="Підрозділ Г-3 не знайдено" />
+          <Empty description="Особового складу не знайдено" />
         </div>
       </>
     )
@@ -225,7 +215,7 @@ export default function OrgStructure(): JSX.Element {
           }}
         >
           {children.slice(0, 3).map((c) => {
-            const list = personnelBySub.get(c.code) ?? []
+            const list = personnelByPlatoon.get(c.code) ?? []
             return (
               <div key={c.id} className="card">
                 <div className="card-head">

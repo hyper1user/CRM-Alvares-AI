@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Spin, Tooltip } from 'antd'
 import {
@@ -17,7 +17,9 @@ import dayjs from 'dayjs'
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useStatisticsSummary, useStatisticsByStatus } from '../hooks/useStatistics'
 import { useMovementList } from '../hooks/useMovements'
+import { usePersonnelList } from '../hooks/usePersonnel'
 import type { SubdivisionTreeNode } from '@shared/types/position'
+import { buildCompanyTree } from '@shared/utils/company-structure'
 
 type Cat = 'duty' | 'combat' | 'medical' | 'leave' | 'absent' | 'other'
 
@@ -212,11 +214,17 @@ export default function Dashboard(): JSX.Element {
   const { data: summary, loading: summaryLoading } = useStatisticsSummary()
   const { data: byStatus } = useStatisticsByStatus()
   const { data: movements } = useMovementList({})
-  const [tree, setTree] = useState<SubdivisionTreeNode[]>([])
-
-  useEffect(() => {
-    window.api.subdivisionsTree().then((r: SubdivisionTreeNode[]) => setTree(r ?? []))
-  }, [])
+  // v0.8.3: дерево орг-структури 12 ШР будується на льоту з ОС роти
+  // (5 взводів за діапазонами positionIndex), а не з subdivisionsTree —
+  // бо в БД 12 ШР представлена єдиним підрозділом Г-3 без дочірніх.
+  const { data: rotaPersonnel } = usePersonnelList({
+    subdivision: 'Г-3',
+    status: 'active'
+  })
+  const tree = useMemo<SubdivisionTreeNode[]>(
+    () => [buildCompanyTree(rotaPersonnel)],
+    [rotaPersonnel]
+  )
 
   // Агрегація 21 статусу у 6 категорій
   const byCat = useMemo<Record<Cat, number>>(() => {
