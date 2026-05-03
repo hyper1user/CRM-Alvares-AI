@@ -144,7 +144,7 @@ export function registerIpcHandlers(): void {
         .from(personnel)
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
         .where(and(...conditions))
-        .orderBy(asc(personnel.fullName))
+        .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
         .all()
 
       // Enrich with position title if position index exists
@@ -378,7 +378,7 @@ export function registerIpcHandlers(): void {
           )
         )
       )
-      .orderBy(asc(personnel.fullName))
+      .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
       .all()
 
     return result
@@ -1299,7 +1299,7 @@ export function registerIpcHandlers(): void {
         .from(personnel)
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
         .where(and(...conditions))
-        .orderBy(asc(personnel.fullName))
+        .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
         .all()
 
       // Date range for the month
@@ -2358,7 +2358,7 @@ export function registerIpcHandlers(): void {
       .select({ id: personnel.id, fullName: personnel.fullName, currentSubdivision: personnel.currentSubdivision })
       .from(personnel)
       .where(sql`${personnel.status} != 'excluded'`)
-      .orderBy(asc(personnel.fullName))
+      .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
       .all()
 
     const normalize = (s: string) => s.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -2682,7 +2682,7 @@ export function registerIpcHandlers(): void {
             .leftJoin(ranks, eq(personnel.rankId, ranks.id))
             .leftJoin(positions, eq(personnel.currentPositionIdx, positions.positionIndex))
             .where(sql`${personnel.id} IN (${sql.raw([...transferredOutIds].join(','))})`)
-            .orderBy(asc(personnel.fullName))
+            .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
             .all()
         : []
 
