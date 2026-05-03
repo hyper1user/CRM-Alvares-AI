@@ -567,6 +567,12 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // (orderType='Виключення'), але БД залишила personnel.status='active'
   // через відсутню гілку в MOVEMENTS_CREATE — застосувати правильний стан.
   fixExcludedFromMovements(sqliteDb)
+
+  // v0.8.7: проміжна v0.8.6 nullify-логіка занулила current_subdivision у
+  // виключених — через що вони випадали з вкладки «Виключені»
+  // (фільтр subdivision='Г-3'). Відновлюємо Г-3 для них (додаток
+  // розрахований на одну роту — інших значень бути не може).
+  restoreSubdivisionForExcluded(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -708,15 +714,13 @@ function syncStatusTypesFromEjoos(sqliteDb: InstanceType<typeof Database>): void
 
 // v0.8.6: до v0.8.6 wizard переміщень з orderType='Виключення' створював
 // рядок у movements, але не міняв personnel.status — особа залишалась
-// active зі старою посадою/підрозділом/статусом. Ця міграція приводить
-// existуючі записи до коректного стану.
+// active зі старою посадою/підрозділом/статусом. v0.8.7: ставимо лише
+// status='excluded' (consistent з PERSONNEL_DELETE), залишаючи поля
+// `current_*` як «останній відомий стан» — інакше особа випадає з UI
+// вкладки «Виключені» (фільтр там за subdivision='Г-3').
 function fixExcludedFromMovements(sqliteDb: InstanceType<typeof Database>): void {
   sqliteDb.exec(`
-    UPDATE personnel SET
-      status = 'excluded',
-      current_position_idx = NULL,
-      current_subdivision = NULL,
-      current_status_code = NULL
+    UPDATE personnel SET status = 'excluded'
     WHERE id IN (
       SELECT m.personnel_id FROM movements m
       WHERE m.is_active = 1 AND m.order_type = 'Виключення'
@@ -726,5 +730,19 @@ function fixExcludedFromMovements(sqliteDb: InstanceType<typeof Database>): void
   const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
   if (changes.cnt > 0) {
     console.log(`[db] fixExcludedFromMovements: виключено ${changes.cnt} записів`)
+  }
+}
+
+// v0.8.7: компенсація бага v0.8.6, який обнуляв current_subdivision при
+// виключенні. ExcludedPersonnel фільтрує subdivision='Г-3' — тож виключені
+// з NULL випадали з UI. Ставимо їм 'Г-3' (єдиний підрозділ у додатку).
+function restoreSubdivisionForExcluded(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET current_subdivision = 'Г-3'
+    WHERE status = 'excluded' AND current_subdivision IS NULL
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] restoreSubdivisionForExcluded: відновлено ${changes.cnt} записів`)
   }
 }

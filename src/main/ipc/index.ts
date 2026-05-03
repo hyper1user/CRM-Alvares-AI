@@ -991,18 +991,16 @@ export function registerIpcHandlers(): void {
           personnelUpdates.currentPositionIdx = 'розпоряджен'
           personnelUpdates.currentSubdivision = 'розпорядження'
         } else if (input.orderType === 'Виключення') {
-          // v0.8.6: виключення через wizard переміщень — особа повністю
-          // йде зі штатного обліку:
-          //  - status='excluded' → не показується в Реєстрі/Канбані/Орг-структурі
-          //  - currentPositionIdx=null → штатна посада звільняється (стає
-          //    вакантною в POSITIONS_LIST, бо personnelByPos фільтрує active)
-          //  - currentSubdivision=null → не належить до жодного підрозділу
-          //  - currentStatusCode=null → знімаємо активний статус
-          //    (statusHistory залишається для аудиту)
+          // v0.8.7: виключення через wizard — `status='excluded'` достатньо
+          // (консистентно з PERSONNEL_DELETE soft-delete).
+          //  - Реєстр / Канбан / Орг-структура: фільтрують status='active' → не покажуть
+          //  - POSITIONS_LIST: personnelByPos з фільтром status='active' →
+          //    посада автоматично йде як вакантна
+          //  - ExcludedPersonnel: фільтрує status='excluded' AND subdivision='Г-3'
+          //    → знаходить виключеного (тому НЕ обнуляємо currentSubdivision)
+          //  - currentPositionIdx/Subdivision/StatusCode залишаємо як «останній
+          //    відомий стан» — для аудиту та довідки на картці виключеного
           personnelUpdates.status = 'excluded'
-          personnelUpdates.currentPositionIdx = null
-          personnelUpdates.currentSubdivision = null
-          personnelUpdates.currentStatusCode = null
         }
 
         db.update(personnel)
