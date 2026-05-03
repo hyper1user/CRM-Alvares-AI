@@ -41,5 +41,5 @@ npmRebuild: false
 publish:
   provider: github
   owner: hyper1user
-  repo: ejoos-plus
+  repo: CRM-Alvares-AI
   releaseType: release
