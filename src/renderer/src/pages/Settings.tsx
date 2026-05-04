@@ -9,6 +9,7 @@ import {
   WarningOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons'
+import UnitAboutCard from '../components/layout/UnitAboutCard'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -206,6 +207,8 @@ export default function Settings(): JSX.Element {
           <b>АльваресAI</b> – система обліку особового складу 12 штурмової роти 4 штурмового батальйону 92 окремої штурмової бригади.
         </Paragraph>
       </Card>
+
+      <UnitAboutCard />
     </Space>
     </>
   )

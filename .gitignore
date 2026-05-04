@@ -52,3 +52,6 @@ desktop.ini
 *.msi
 *.blockmap
 builder-debug.yml
+
+# === TypeScript incremental cache ===
+*.tsbuildinfo

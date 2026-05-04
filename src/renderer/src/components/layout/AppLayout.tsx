@@ -34,6 +34,7 @@ import {
 import { ThemeContext } from '../../main'
 import dayjs from 'dayjs'
 import AppRoutes from '../../routes'
+import BrandMark from './BrandMark'
 
 const { Header, Sider, Content } = Layout
 
@@ -68,41 +69,6 @@ function getCurrentTitle(pathname: string): string {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname]
   if (pathname.startsWith('/personnel/')) return 'Картка бійця'
   return 'Альварес AI'
-}
-
-function BrandMark(): JSX.Element {
-  return (
-    <div
-      style={{
-        width: 26,
-        height: 26,
-        borderRadius: 5,
-        background: 'var(--bg-3)',
-        border: '1px solid var(--line-2)',
-        display: 'grid',
-        placeItems: 'center',
-        fontFamily: 'var(--font-mono)',
-        fontWeight: 700,
-        fontSize: 12,
-        color: 'var(--accent)',
-        flexShrink: 0,
-        letterSpacing: '-0.04em',
-        position: 'relative',
-      }}
-    >
-      A
-      <span
-        style={{
-          position: 'absolute',
-          inset: 3,
-          border: '1px solid var(--accent-line)',
-          borderRadius: 3,
-          pointerEvents: 'none',
-          opacity: 0.5,
-        }}
-      />
-    </div>
-  )
 }
 
 function NavBadge({ value }: { value: number | string }): JSX.Element {
