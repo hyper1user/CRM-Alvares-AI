@@ -102,6 +102,7 @@ function KpiCard({
 }
 
 function OrgTreeMini({ tree }: { tree: SubdivisionTreeNode[] }): JSX.Element {
+  const navigate = useNavigate()
   // Знаходимо root для 12 ШР (Г-3)
   const root = tree.find((n) => n.code === 'Г-3') ?? tree[0]
   if (!root) {
@@ -111,9 +112,26 @@ function OrgTreeMini({ tree }: { tree: SubdivisionTreeNode[] }): JSX.Element {
   const children = root.children ?? []
   const maxCount = Math.max(...children.map((c) => c.personnelCount || 0), 1)
 
+  const goToPlatoon = (code: string | null) => {
+    if (code) navigate(`/personnel?platoon=${encodeURIComponent(code)}`)
+    else navigate('/personnel')
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div className="org-node root">
+      <div
+        className="org-node root clickable"
+        role="button"
+        tabIndex={0}
+        onClick={() => goToPlatoon(null)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            goToPlatoon(null)
+          }
+        }}
+        title="Відкрити Реєстр всієї роти"
+      >
         <TeamOutlined style={{ color: 'var(--accent)' }} />
         <div className="ttl">{root.name}</div>
         <span className="ct mono">{rootCount}</span>
@@ -152,7 +170,19 @@ function OrgTreeMini({ tree }: { tree: SubdivisionTreeNode[] }): JSX.Element {
                   background: 'var(--line-1)',
                 }}
               />
-              <div className="org-node">
+              <div
+                className="org-node clickable"
+                role="button"
+                tabIndex={0}
+                onClick={() => goToPlatoon(c.code)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    goToPlatoon(c.code)
+                  }
+                }}
+                title={`Відкрити Реєстр: ${c.name}`}
+              >
                 <span className="mono dim" style={{ fontSize: 11 }}>
                   {c.code}
                 </span>

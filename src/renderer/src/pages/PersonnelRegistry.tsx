@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Popconfirm, message, Tooltip } from 'antd'
 import {
   PlusOutlined,
@@ -11,6 +11,7 @@ import {
   DeleteOutlined,
   TableOutlined,
   AppstoreOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { PersonnelListItem } from '@shared/types/personnel'
@@ -18,6 +19,7 @@ import PersonnelForm from '../components/personnel/PersonnelForm'
 import { useLookups } from '../hooks/useLookups'
 import { usePersonnelList } from '../hooks/usePersonnel'
 import { useAppStore } from '../stores/app.store'
+import { PLATOONS, getPlatoonCodeForPerson, type PlatoonCode } from '@shared/utils/company-structure'
 
 type Cat = 'all' | 'duty' | 'combat' | 'medical' | 'leave' | 'absent'
 
@@ -66,6 +68,7 @@ const PAGE_SIZE = 50
 
 export default function PersonnelRegistry(): JSX.Element {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { statusTypes } = useLookups()
   const globalSubdivision = useAppStore((s) => s.globalSubdivision)
 
@@ -75,6 +78,21 @@ export default function PersonnelRegistry(): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<PersonnelListItem | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const platoonParam = searchParams.get('platoon')
+  const platoonFilter = useMemo<PlatoonCode | null>(() => {
+    if (!platoonParam) return null
+    const valid = PLATOONS.find((p) => p.code === platoonParam)
+    return valid ? valid.code : null
+  }, [platoonParam])
+  const platoonInfo = platoonFilter ? PLATOONS.find((p) => p.code === platoonFilter) ?? null : null
+
+  const clearPlatoon = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('platoon')
+    setSearchParams(next, { replace: true })
+    setPage(1)
+  }
 
   const filters = useMemo(
     () => ({
@@ -95,12 +113,18 @@ export default function PersonnelRegistry(): JSX.Element {
   }, [statusTypes])
 
   const filtered = useMemo(() => {
-    if (catFilter === 'all') return data
-    return data.filter((p) => {
-      const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
-      return cat === catFilter
-    })
-  }, [data, catFilter, groupByCode])
+    let rows = data
+    if (platoonFilter) {
+      rows = rows.filter((p) => getPlatoonCodeForPerson(p) === platoonFilter)
+    }
+    if (catFilter !== 'all') {
+      rows = rows.filter((p) => {
+        const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
+        return cat === catFilter
+      })
+    }
+    return rows
+  }, [data, catFilter, groupByCode, platoonFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -134,7 +158,9 @@ export default function PersonnelRegistry(): JSX.Element {
           </div>
           <h1>Реєстр</h1>
           <div className="sub">
-            Список особового складу 12 ШР станом на {dayjs().format('DD.MM.YYYY')}
+            {platoonInfo
+              ? `${platoonInfo.fullName} станом на ${dayjs().format('DD.MM.YYYY')}`
+              : `Список особового складу 12 ШР станом на ${dayjs().format('DD.MM.YYYY')}`}
           </div>
         </div>
         <div className="actions">
@@ -188,6 +214,45 @@ export default function PersonnelRegistry(): JSX.Element {
             ))}
           </div>
         </div>
+
+        {platoonInfo && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 6px 4px 10px',
+              borderRadius: 999,
+              border: '1px solid var(--accent)',
+              background: 'color-mix(in oklab, var(--accent) 12%, var(--bg-2))',
+              fontSize: 12,
+              color: 'var(--fg-0)',
+              lineHeight: 1.2
+            }}
+          >
+            <span className="mono dim" style={{ fontSize: 10 }}>{platoonInfo.code}</span>
+            <span style={{ fontWeight: 600 }}>{platoonInfo.name}</span>
+            <button
+              type="button"
+              onClick={clearPlatoon}
+              title="Зняти фільтр взводу"
+              style={{
+                width: 18,
+                height: 18,
+                marginLeft: 2,
+                border: 0,
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--fg-2)',
+                display: 'grid',
+                placeItems: 'center',
+                borderRadius: '50%'
+              }}
+            >
+              <CloseOutlined style={{ fontSize: 10 }} />
+            </button>
+          </div>
+        )}
 
         <div style={{ flex: 1 }} />
 

@@ -458,6 +458,26 @@ html[data-theme="light"] .pill.warn    { color: oklch(0.45 0.13 70); }
 .org-node .ttl { font-weight: 600; font-size: 12px; }
 .org-node .ct  { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
 
+.org-node.clickable {
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+  outline: none;
+}
+.org-node.clickable:hover {
+  background: color-mix(in oklab, var(--accent) 8%, var(--bg-2));
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line-1));
+}
+.org-node.clickable:active {
+  transform: translateY(1px);
+}
+.org-node.clickable:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.org-node.root.clickable:hover {
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg-3));
+}
+
 .hgrid { display: grid; gap: 12px; }
 
 /* ============================================================ */
