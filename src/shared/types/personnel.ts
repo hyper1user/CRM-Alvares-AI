@@ -131,4 +131,5 @@ export interface PersonnelListItem {
   currentSubdivision: string | null
   phone: string | null
   status: string
+  excludedAt: string | null
 }

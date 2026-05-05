@@ -1,5 +1,6 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Table, Popover, Select, message, theme } from 'antd'
+import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react'
+import { Table, Popover, Select, Button, message, theme } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { useLookups } from '../../hooks/useLookups'
 import type { PersonnelAttendanceRow } from '@shared/types/attendance'
@@ -26,6 +27,96 @@ interface DragState {
 
 const DRAG_THRESHOLD_PX = 4
 
+// =====================================================================
+// DayCell — мемоізована клітинка дня
+//
+// Винесено в окремий компонент і обгорнуто React.memo, щоб при зміні
+// drag-range перерендерювалися лише клітинки, що увійшли/вийшли з
+// діапазону, а не всі 1550 (50 ОС × 31 день). Жодних Popover/Select
+// усередині — попап рендериться один раз глобально на рівні таблиці
+// через anchor-ref. Ця оптимізація — головне джерело прискорення drag.
+// =====================================================================
+interface DayCellProps {
+  rowIdx: number
+  colIdx: number
+  personnelId: number
+  date: string
+  code: string | null
+  colorCode: string | null
+  isWeekend: boolean
+  inDrag: boolean
+  weekendBg: string
+  primaryColor: string
+  onMouseDown: (e: React.MouseEvent, cell: CellRef) => void
+  onClick: (e: React.MouseEvent, cell: CellRef) => void
+}
+
+const DayCell = memo(function DayCell({
+  rowIdx,
+  colIdx,
+  personnelId,
+  date,
+  code,
+  colorCode,
+  isWeekend,
+  inDrag,
+  weekendBg,
+  primaryColor,
+  onMouseDown,
+  onClick
+}: DayCellProps) {
+  const cellStyle: React.CSSProperties = {
+    width: '100%',
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: code ? 'cell' : 'pointer',
+    borderRadius: 2,
+    fontSize: 11,
+    userSelect: 'none',
+    position: 'relative',
+    ...(colorCode
+      ? { background: colorCode + '33', color: colorCode }
+      : isWeekend
+        ? { background: weekendBg }
+        : {}),
+    ...(inDrag
+      ? {
+          outline: `1.5px solid ${primaryColor}`,
+          outlineOffset: -1,
+          background: `${primaryColor}1f`
+        }
+      : {})
+  }
+
+  return (
+    <div
+      style={cellStyle}
+      data-cell="1"
+      data-row={rowIdx}
+      data-col={colIdx}
+      data-pid={personnelId}
+      data-date={date}
+      data-value={code ?? ''}
+      onMouseDown={(e) => onMouseDown(e, { rowIdx, colIdx, personnelId, date, value: code })}
+      onClick={(e) => onClick(e, { rowIdx, colIdx, personnelId, date, value: code })}
+    >
+      {code ? <span>{code.slice(0, 3)}</span> : <span style={{ color: '#ddd' }}>·</span>}
+    </div>
+  )
+})
+
+interface EditorState {
+  cellKey: string
+  personnelId: number
+  date: string
+  value: string | null
+  fullName: string
+  // Anchor rect для позиціонування Popover'а поверх клітинки
+  rect: { left: number; top: number; width: number; height: number }
+}
+
 export default function AttendanceGrid({
   year,
   month,
@@ -34,7 +125,10 @@ export default function AttendanceGrid({
   const { token } = theme.useToken()
   const { statusTypes } = useLookups()
   const [saving, setSaving] = useState(false)
-  const [popoverKey, setPopoverKey] = useState<string | null>(null)
+
+  // Один глобальний editor — замість 1550 Popover'ів. Анкоруємо до
+  // клітинки, на яку клікнули, через rect від `getBoundingClientRect()`.
+  const [editor, setEditor] = useState<EditorState | null>(null)
 
   // Локальна копія rows для optimistic UI — не дозволяє scroll скидатись
   // при кожному set-day. Sync з prop при зміні місяця/підрозділу.
@@ -81,7 +175,8 @@ export default function AttendanceGrid({
     pendingSrc: CellRef | null // mousedown зафіксував кандидата, але ще не перейшли в drag mode
     pendingStart: { x: number; y: number } | null
     active: DragState | null
-  }>({ pendingSrc: null, pendingStart: null, active: null })
+    justEnded: boolean // прапорець для onCellClick — щоб не відкривати popover після drag
+  }>({ pendingSrc: null, pendingStart: null, active: null, justEnded: false })
 
   // Окремий state для preview-рамки — змінюється тільки при перетині нової клітинки
   const [dragRange, setDragRange] = useState<{
@@ -118,21 +213,49 @@ export default function AttendanceGrid({
   const daysInMonth = new Date(year, month, 0).getDate()
 
   // Один день, одна особа — optimistic update без refetch
-  const handleSetDay = async (personnelId: number, date: string, statusCode: string) => {
-    // Optimistic: одразу оновлюємо UI
-    const prevSnapshot = rowsState
-    localSetCell(personnelId, date, statusCode)
-    setSaving(true)
-    try {
-      await window.api.attendanceSetDay(personnelId, date, statusCode)
-    } catch (err) {
-      // Rollback при помилці
-      setRowsState(prevSnapshot)
-      message.error(`Помилка: ${err}`)
-    } finally {
-      setSaving(false)
-    }
-  }
+  const handleSetDay = useCallback(
+    async (personnelId: number, date: string, statusCode: string) => {
+      const prevSnapshot = rowsState
+      localSetCell(personnelId, date, statusCode)
+      setSaving(true)
+      try {
+        await window.api.attendanceSetDay(personnelId, date, statusCode)
+      } catch (err) {
+        setRowsState(prevSnapshot)
+        message.error(`Помилка: ${err}`)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [rowsState]
+  )
+
+  // Очистити одну клітинку — DELETE на бекенді, локально знімаємо ключ дня
+  const handleClearDay = useCallback(
+    async (personnelId: number, date: string) => {
+      const prevSnapshot = rowsState
+      // Optimistic: знімаємо ключ дня з days мапи
+      setRowsState((prev) =>
+        prev.map((r) => {
+          if (r.personnelId !== personnelId) return r
+          if (!(date in r.days)) return r
+          const nextDays = { ...r.days }
+          delete nextDays[date]
+          return { ...r, days: nextDays }
+        })
+      )
+      setSaving(true)
+      try {
+        await window.api.attendanceClearDay(personnelId, date)
+      } catch (err) {
+        setRowsState(prevSnapshot)
+        message.error(`Помилка: ${err}`)
+      } finally {
+        setSaving(false)
+      }
+    },
+    [rowsState]
+  )
 
   // Bulk apply після drag-fill — optimistic update без refetch
   const handleBulkApply = useCallback(
@@ -153,7 +276,6 @@ export default function AttendanceGrid({
         }
       }
       if (items.length === 0) return
-      // Optimistic: одразу оновлюємо UI
       const prevSnapshot = rowsState
       localSetCells(items)
       setSaving(true)
@@ -184,6 +306,16 @@ export default function AttendanceGrid({
     return { rowIdx, colIdx, personnelId, date, value }
   }
 
+  const computeRange = (active: DragState) => {
+    const minRow = Math.min(active.src.rowIdx, active.current.rowIdx)
+    const maxRow = Math.max(active.src.rowIdx, active.current.rowIdx)
+    const minCol = Math.min(active.src.colIdx, active.current.colIdx)
+    const maxCol = Math.max(active.src.colIdx, active.current.colIdx)
+    return { minRow, maxRow, minCol, maxCol, value: active.src.value }
+  }
+
+  const updateRange = (active: DragState) => setDragRange(computeRange(active))
+
   // Глобальні listenerи для mousemove/mouseup, щоб не губити drag при виході курсора з клітинки
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -193,7 +325,6 @@ export default function AttendanceGrid({
         const dx = Math.abs(e.clientX - d.pendingStart.x)
         const dy = Math.abs(e.clientY - d.pendingStart.y)
         if (dx >= DRAG_THRESHOLD_PX || dy >= DRAG_THRESHOLD_PX) {
-          // Перейти в drag mode — тільки якщо source має значення
           if (d.pendingSrc.value) {
             d.active = { src: d.pendingSrc, current: d.pendingSrc }
             updateRange(d.active)
@@ -215,13 +346,12 @@ export default function AttendanceGrid({
     const onUp = () => {
       const d = dragRef.current
       if (d.active && dragRange) {
-        // Виконати bulk apply, але з поточного знімку state'у — не з d.active напряму
         const r = computeRange(d.active)
         d.active = null
+        d.justEnded = true
         setDragRange(null)
         handleBulkApply(r)
       } else {
-        // Простий клік без drag — нічого не робимо тут (Popover open керується через onClick клітинки)
         d.active = null
         d.pendingSrc = null
         d.pendingStart = null
@@ -237,165 +367,128 @@ export default function AttendanceGrid({
     }
   }, [dragRange, handleBulkApply])
 
-  const computeRange = (active: DragState) => {
-    const minRow = Math.min(active.src.rowIdx, active.current.rowIdx)
-    const maxRow = Math.max(active.src.rowIdx, active.current.rowIdx)
-    const minCol = Math.min(active.src.colIdx, active.current.colIdx)
-    const maxCol = Math.max(active.src.colIdx, active.current.colIdx)
-    return { minRow, maxRow, minCol, maxCol, value: active.src.value }
-  }
-
-  const updateRange = (active: DragState) => setDragRange(computeRange(active))
-
-  const onCellMouseDown = (e: React.MouseEvent, cell: CellRef) => {
-    if (e.button !== 0) return // тільки лівий клік
+  const onCellMouseDown = useCallback((e: React.MouseEvent, cell: CellRef) => {
+    if (e.button !== 0) return
     dragRef.current.pendingSrc = cell
     dragRef.current.pendingStart = { x: e.clientX, y: e.clientY }
-    // Не preventDefault — щоб клік далі міг відкрити Popover, якщо drag не відбувся
-  }
+  }, [])
 
-  // Click без drag відкриває Popover
-  const onCellClick = (e: React.MouseEvent, cellKey: string) => {
-    // Якщо щойно завершили drag, dragRange ще міг не встигнути очиститись —
-    // простіша евристика: якщо active.src уже null і pending теж null,
-    // значить це чистий клік. Але mouseup сам очищає — на момент click це вже null.
-    // Натомість перевіримо, чи був drag-range з > 1 клітинки —
-    // якщо щойно завершили fill, не відкриваємо.
-    void e
-    setPopoverKey((cur) => (cur === cellKey ? null : cellKey))
-  }
-
-  const isInDragRange = (rowIdx: number, colIdx: number) =>
-    dragRange &&
-    rowIdx >= dragRange.minRow &&
-    rowIdx <= dragRange.maxRow &&
-    colIdx >= dragRange.minCol &&
-    colIdx <= dragRange.maxCol
-
-  const columns: ColumnsType<PersonnelAttendanceRow> = [
-    {
-      title: '№',
-      width: 45,
-      fixed: 'left',
-      render: (_v, _r, idx) => idx + 1
+  // Click без drag відкриває редактор. Якщо щойно завершився drag —
+  // не відкривати (justEnded flag).
+  const onCellClick = useCallback(
+    (e: React.MouseEvent, cell: CellRef) => {
+      const d = dragRef.current
+      if (d.justEnded) {
+        d.justEnded = false
+        return
+      }
+      const target = e.currentTarget as HTMLDivElement
+      const rect = target.getBoundingClientRect()
+      const row = rowsState[cell.rowIdx]
+      const cellKey = `${cell.personnelId}-${cell.date}`
+      setEditor((cur) => {
+        if (cur && cur.cellKey === cellKey) return null
+        return {
+          cellKey,
+          personnelId: cell.personnelId,
+          date: cell.date,
+          value: cell.value,
+          fullName: row?.fullName ?? '',
+          rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+        }
+      })
     },
-    {
-      title: 'ПІБ',
-      dataIndex: 'fullName',
-      width: 200,
-      fixed: 'left',
-      ellipsis: true,
-      render: (text: string, record) => (
-        <span>
-          {record.rankName && (
-            <span style={{ color: '#888', fontSize: 12 }}>{record.rankName} </span>
-          )}
-          {text}
-        </span>
-      )
-    },
-    ...Array.from({ length: daysInMonth }, (_, i) => {
+    [rowsState]
+  )
+
+  const isInDragRange = useCallback(
+    (rowIdx: number, colIdx: number) =>
+      !!dragRange &&
+      rowIdx >= dragRange.minRow &&
+      rowIdx <= dragRange.maxRow &&
+      colIdx >= dragRange.minCol &&
+      colIdx <= dragRange.maxCol,
+    [dragRange]
+  )
+
+  // Компактна мапа дат у місяці — щоб render-функція не форматувала рядок щоразу.
+  const datesInMonth = useMemo(() => {
+    return Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       const isWeekend = [0, 6].includes(new Date(year, month - 1, day).getDay())
+      return { day, dateStr, isWeekend }
+    })
+  }, [daysInMonth, year, month])
 
-      return {
+  const weekendBg = token.colorWarningBg
+  const primaryColor = token.colorPrimary
+
+  // useMemo на columns — щоб Ant Table не вважав columns зміненими при кожному
+  // ререндері основного компонента. Залежності: усе, що бере участь у render
+  // клітинки (datesInMonth, statusMap, dragRange-derived isInDragRange,
+  // мемо-stable handlers).
+  const columns: ColumnsType<PersonnelAttendanceRow> = useMemo(() => {
+    return [
+      {
+        title: '№',
+        width: 45,
+        fixed: 'left',
+        render: (_v, _r, idx) => idx + 1
+      },
+      {
+        title: 'ПІБ',
+        dataIndex: 'fullName',
+        width: 200,
+        fixed: 'left',
+        ellipsis: true,
+        render: (text: string, record) => (
+          <span>
+            {record.rankName && (
+              <span style={{ color: '#888', fontSize: 12 }}>{record.rankName} </span>
+            )}
+            {text}
+          </span>
+        )
+      },
+      ...datesInMonth.map(({ day, dateStr, isWeekend }, i) => ({
         title: String(day),
         width: 38,
         align: 'center' as const,
         onHeaderCell: () => ({
-          style: isWeekend ? { background: token.colorWarningBg } : {}
+          style: isWeekend ? { background: weekendBg } : {}
         }),
         render: (_: unknown, record: PersonnelAttendanceRow, rowIdx: number) => {
           const code = record.days[dateStr] ?? null
-          const st = code ? statusMap.get(code) : null
-          const cellKey = `${record.personnelId}-${dateStr}`
-          const inDrag = isInDragRange(rowIdx, i)
-
-          const cellStyle: React.CSSProperties = {
-            width: '100%',
-            height: 28,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: code ? 'cell' : 'pointer',
-            borderRadius: 2,
-            fontSize: 11,
-            userSelect: 'none',
-            position: 'relative',
-            ...(st?.colorCode
-              ? { background: st.colorCode + '33', color: st.colorCode }
-              : isWeekend
-                ? { background: token.colorWarningBg }
-                : {}),
-            ...(inDrag
-              ? {
-                  outline: `1.5px solid ${token.colorPrimary}`,
-                  outlineOffset: -1,
-                  background: `${token.colorPrimary}1f`
-                }
-              : {})
-          }
-
-          const cellRef: CellRef = {
-            rowIdx,
-            colIdx: i,
-            personnelId: record.personnelId,
-            date: dateStr,
-            value: code
-          }
-
-          const content = (
-            <div
-              style={cellStyle}
-              data-cell="1"
-              data-row={rowIdx}
-              data-col={i}
-              data-pid={record.personnelId}
-              data-date={dateStr}
-              data-value={code ?? ''}
-              onMouseDown={(e) => onCellMouseDown(e, cellRef)}
-              onClick={(e) => onCellClick(e, cellKey)}
-            >
-              {code ? (
-                <span title={st?.name}>{code.slice(0, 3)}</span>
-              ) : (
-                <span style={{ color: '#ddd' }}>·</span>
-              )}
-            </div>
-          )
-
+          const meta = code ? statusMap.get(code) : null
           return (
-            <Popover
-              trigger="click"
-              open={popoverKey === cellKey}
-              onOpenChange={(open) => {
-                if (!open) setPopoverKey(null)
-              }}
-              title={`${record.fullName} — ${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`}
-              content={
-                <Select
-                  style={{ width: 260 }}
-                  placeholder="Оберіть статус"
-                  value={code}
-                  options={statusOptions}
-                  showSearch
-                  optionFilterProp="label"
-                  disabled={saving}
-                  onChange={(val) => {
-                    handleSetDay(record.personnelId, dateStr, val)
-                    setPopoverKey(null)
-                  }}
-                />
-              }
-            >
-              {content}
-            </Popover>
+            <DayCell
+              rowIdx={rowIdx}
+              colIdx={i}
+              personnelId={record.personnelId}
+              date={dateStr}
+              code={code}
+              colorCode={meta?.colorCode ?? null}
+              isWeekend={isWeekend}
+              inDrag={isInDragRange(rowIdx, i)}
+              weekendBg={weekendBg}
+              primaryColor={primaryColor}
+              onMouseDown={onCellMouseDown}
+              onClick={onCellClick}
+            />
           )
         }
-      }
-    })
-  ]
+      }))
+    ]
+  }, [
+    datesInMonth,
+    statusMap,
+    isInDragRange,
+    weekendBg,
+    primaryColor,
+    onCellMouseDown,
+    onCellClick
+  ])
 
   // Summary: present/absent per day
   const summaryData = useMemo(() => {
@@ -417,6 +510,16 @@ export default function AttendanceGrid({
     }
     return { present, absent }
   }, [rowsState, daysInMonth, year, month, statusMap])
+
+  // Закрити editor при кліку зовні / Esc
+  useEffect(() => {
+    if (!editor) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setEditor(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editor])
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
@@ -446,6 +549,77 @@ export default function AttendanceGrid({
           </Table.Summary>
         )}
       />
+
+      {/* Один глобальний редактор — anchor через fixed-positioned div */}
+      {editor && (
+        <Popover
+          open
+          trigger="click"
+          placement="bottom"
+          title={
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8
+              }}
+            >
+              <span>
+                {editor.fullName} — {editor.date.split('-').reverse().join('.')}
+              </span>
+              {editor.value && (
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={saving}
+                  title="Очистити позначку"
+                  style={{ color: '#ff4d4f', borderColor: '#ff4d4f' }}
+                  onClick={() => {
+                    handleClearDay(editor.personnelId, editor.date)
+                    setEditor(null)
+                  }}
+                >
+                  Очистити
+                </Button>
+              )}
+            </div>
+          }
+          content={
+            <Select
+              autoFocus
+              defaultOpen
+              style={{ width: 260 }}
+              placeholder="Оберіть статус"
+              value={editor.value}
+              options={statusOptions}
+              showSearch
+              optionFilterProp="label"
+              disabled={saving}
+              onChange={(val) => {
+                handleSetDay(editor.personnelId, editor.date, val)
+                setEditor(null)
+              }}
+            />
+          }
+          onOpenChange={(open) => {
+            if (!open) setEditor(null)
+          }}
+        >
+          <div
+            style={{
+              position: 'fixed',
+              top: editor.rect.top,
+              left: editor.rect.left,
+              width: editor.rect.width,
+              height: editor.rect.height,
+              pointerEvents: 'none'
+            }}
+          />
+        </Popover>
+      )}
+
       {dragRange && (
         <div
           style={{

@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react'
-import { Table, Button, Space, Tag, Typography, Alert, Tooltip } from 'antd'
+import { Table, Button, Space, Tag, Typography, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { SyncOutlined, FileExcelOutlined, WarningOutlined, LinkOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import ExcelJS from 'exceljs'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 interface MissingEntry {
   id: number

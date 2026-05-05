@@ -27,7 +27,7 @@ export const subdivisions = sqliteTable('subdivisions', {
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
   fullName: text('full_name'),
-  parentId: integer('parent_id').references((): ReturnType<typeof integer> => subdivisions.id),
+  parentId: integer('parent_id').references(() => subdivisions.id),
   sortOrder: integer('sort_order').notNull(),
   isActive: integer('is_active', { mode: 'boolean' }).default(true)
 })

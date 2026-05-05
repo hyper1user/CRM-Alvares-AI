@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react'
-import { Card, DatePicker, Button, Space, Spin, message, Typography, theme, Input, Collapse } from 'antd'
+import { Card, DatePicker, Spin, message, Typography, theme, Input, Collapse } from 'antd'
 import { DollarOutlined, FileExcelOutlined, SettingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useDgvMonth } from '../hooks/useDgv'
 import DgvGrid from '../components/dgv/DgvGrid'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 const { TextArea } = Input
 
 export default function DgvPage(): JSX.Element {
@@ -14,7 +14,6 @@ export default function DgvPage(): JSX.Element {
   const [year, setYear] = useState(today.year())
   const [month, setMonth] = useState(today.month() + 1)
   const [exporting, setExporting] = useState(false)
-  const [savingMeta, setSavingMeta] = useState(false)
 
   const { data, loading, refetch } = useDgvMonth(year, month)
 
@@ -47,13 +46,10 @@ export default function DgvPage(): JSX.Element {
   }
 
   const handleSaveGrounds = async (key: string, value: string) => {
-    setSavingMeta(true)
     try {
       await window.api.dgvMetaSet(yearMonth, key, value)
     } catch (err) {
       message.error(`Помилка: ${err}`)
-    } finally {
-      setSavingMeta(false)
     }
   }
 

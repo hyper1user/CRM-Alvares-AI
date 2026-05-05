@@ -1,4 +1,5 @@
 import { type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import * as schema from './schema'
 import {
   ranks,
   statusTypes,
@@ -30,9 +31,9 @@ import {
   SUBDIVISIONS,
   SEED_POSITIONS
 } from '@shared/enums/categories'
-import { sql, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
-export function seedDatabase(db: BetterSQLite3Database): void {
+export function seedDatabase(db: BetterSQLite3Database<typeof schema>): void {
   // Перевіряємо чи БД вже заповнена
   const existing = db.select().from(ranks).limit(1).all()
   if (existing.length > 0) return

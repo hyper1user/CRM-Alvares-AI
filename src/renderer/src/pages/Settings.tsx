@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons'
 import UnitAboutCard from '../components/layout/UnitAboutCard'
 
-const { Title, Paragraph, Text } = Typography
+const { Paragraph, Text } = Typography
 
 type UpdaterStatus =
   | { state: 'idle' }
@@ -38,7 +38,9 @@ export default function Settings(): JSX.Element {
 
     // Subscribe to live status updates
     const unsub = window.api.updaterOnStatus((s) => setUpdaterStatus(s as UpdaterStatus))
-    return unsub
+    return () => {
+      unsub()
+    }
   }, [])
 
   const handleBrowse = async () => {

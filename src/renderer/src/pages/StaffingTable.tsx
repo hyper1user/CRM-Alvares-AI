@@ -1,12 +1,12 @@
 import { useMemo } from 'react'
 import { Card, Table, Tag, Space, Progress, Typography } from 'antd'
-import { FileTextOutlined, TeamOutlined } from '@ant-design/icons'
+import { TeamOutlined } from '@ant-design/icons'
 import { usePositionList } from '../hooks/usePositions'
 import { useLookups } from '../hooks/useLookups'
 import { useAppStore } from '../stores/app.store'
 import type { PositionListItem } from '@shared/types/position'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 interface SubdivisionGroup {
   subdivisionId: number

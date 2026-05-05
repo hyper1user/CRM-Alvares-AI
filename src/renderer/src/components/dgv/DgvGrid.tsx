@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { Table, Popover, Select, Tag, message, theme, Tooltip, Button, Modal, Input, DatePicker } from 'antd'
-import { ClearOutlined } from '@ant-design/icons'
+import { Table, Popover, Select, message, theme, Tooltip, Button, Modal, Input, DatePicker } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { DGV_CODES, DGV_CODE_MAP, DGV_CATEGORY_LABELS } from '@shared/enums/dgv-codes'
 import type { DgvPersonRow } from '@shared/types/dgv'

@@ -9,7 +9,6 @@ import { personnel, ranks, positions, dgvMarks, dgvMonthMeta } from '../db/schem
 import { eq, and, asc, sql } from 'drizzle-orm'
 import { DGV_CODE_MAP } from '@shared/enums/dgv-codes'
 import type { DgvPeriod } from '@shared/types/dgv'
-import dayjs from 'dayjs'
 
 const MONTH_NAMES_GENITIVE = [
   '', 'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
@@ -130,14 +129,6 @@ function formatPersonTitle(p: PersonData): string {
   parts.push(p.fullName)
   if (p.positionTitle) parts.push(p.positionTitle)
   return parts.join(', ')
-}
-
-function periodsToString(periods: DgvPeriod[]): string {
-  return periods.map((p) =>
-    p.dateFrom === p.dateTo
-      ? p.dateFrom
-      : `з ${p.dateFrom} по ${p.dateTo}`
-  ).join(';\n')
 }
 
 function periodsFromCol(periods: DgvPeriod[]): string {

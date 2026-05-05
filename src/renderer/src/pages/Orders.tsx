@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  Typography,
   Button,
   Space,
   Tag,
@@ -14,7 +13,6 @@ import {
   Divider
 } from 'antd'
 import {
-  FileProtectOutlined,
   PlusOutlined,
   DeleteOutlined,
   EyeOutlined,
@@ -27,7 +25,6 @@ import PersonnelSearchSelect from '@renderer/components/movements/PersonnelSearc
 import type { OrderListItem } from '@shared/types/document'
 import dayjs from 'dayjs'
 
-const { Title } = Typography
 const { TextArea } = Input
 
 const ORDER_TYPES: Record<string, { label: string; color: string }> = {

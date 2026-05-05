@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Typography,
   Button,
   Space,
   Tag,
@@ -14,7 +13,6 @@ import {
   message
 } from 'antd'
 import {
-  CalendarOutlined,
   PlusOutlined,
   DeleteOutlined,
   FileTextOutlined
@@ -24,8 +22,6 @@ import { useLeaveList } from '@renderer/hooks/useLeaveRecords'
 import PersonnelSearchSelect from '@renderer/components/movements/PersonnelSearchSelect'
 import type { LeaveRecordListItem } from '@shared/types/document'
 import dayjs from 'dayjs'
-
-const { Title } = Typography
 
 interface LeaveTypeEntry {
   id: number

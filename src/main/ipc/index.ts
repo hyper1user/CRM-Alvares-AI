@@ -148,7 +148,8 @@ export function registerIpcHandlers(): void {
           currentStatusCode: personnel.currentStatusCode,
           currentSubdivision: personnel.currentSubdivision,
           phone: personnel.phone,
-          status: personnel.status
+          status: personnel.status,
+          excludedAt: personnel.excludedAt
         })
         .from(personnel)
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
@@ -649,9 +650,6 @@ export function registerIpcHandlers(): void {
       .where(eq(personnel.status, 'active'))
       .all()
 
-    // Build code-to-id map and count maps
-    const codeToSub = new Map(allSubs.map((s) => [s.code, s]))
-
     // Count positions per subdivision
     const posCountBySubId = new Map<number, number>()
     for (const p of allPositions) {
@@ -1113,7 +1111,7 @@ export function registerIpcHandlers(): void {
       const db = getDatabase()
 
       // Build WHERE conditions
-      const conditions = []
+      const conditions: ReturnType<typeof eq>[] = []
       if (filters?.subdivision) {
         conditions.push(eq(personnel.currentSubdivision, filters.subdivision))
       }
@@ -1211,6 +1209,11 @@ export function registerIpcHandlers(): void {
       // (currentSubdivision='Г-3'). Виключені та ті, хто в розпорядженні —
       // не отримують жодних статусів (РВ/РЗ/ВП тощо), бо фактично не
       // виконують службових обов'язків у роті.
+      // v0.10.x: для розпорядженни жорстку заборону замінено на whitelist
+      // через `statusTypes.onSupply`. Бойові коди (РВ/РЗ/РШ/ППД/АДП/БЗВП —
+      // onSupply=true) і далі недоступні, бо вони фіксують перебування на
+      // бойовому забезпеченні підрозділу. Термінальні (СЗЧ/200/ЗБ/ПОЛОН) і
+      // решта (ШП/ВД/ВП/ВПП тощо) — навпаки актуальні саме для розпорядженни.
       const target = db
         .select({
           status: personnel.status,
@@ -1230,11 +1233,18 @@ export function registerIpcHandlers(): void {
         }
       }
       if (target.currentSubdivision === 'розпорядження') {
-        return {
-          error: true,
-          issues: [
-            { message: 'Не можна призначити статус військовослужбовцю в розпорядженні — спочатку поверніть його на штатну посаду' }
-          ]
+        const statusType = db
+          .select({ onSupply: statusTypes.onSupply })
+          .from(statusTypes)
+          .where(eq(statusTypes.code, input.statusCode))
+          .get()
+        if (statusType?.onSupply) {
+          return {
+            error: true,
+            issues: [
+              { message: 'Бойові статуси (РВ/РЗ/РШ/ППД/АДП/БЗВП) можна призначати лише на штатній посаді — спочатку поверніть особу на посаду через переміщення' }
+            ]
+          }
         }
       }
 
@@ -1264,7 +1274,7 @@ export function registerIpcHandlers(): void {
           .set({
             currentStatusCode: input.statusCode,
             updatedAt: sql`datetime('now')`
-          } as Partial<typeof personnel.$inferInsert>)
+          })
           .where(eq(personnel.id, input.personnelId))
           .run()
 
@@ -1492,6 +1502,51 @@ export function registerIpcHandlers(): void {
         .run()
 
       return { ok: true }
+    }
+  )
+
+  // Clear single day attendance — DELETE рядка
+  safeHandle(
+    IPC.ATTENDANCE_CLEAR_DAY,
+    (_event, personnelId: number, date: string) => {
+      const db = getDatabase()
+
+      const existing = db
+        .select({ id: attendance.id, statusCode: attendance.statusCode })
+        .from(attendance)
+        .where(and(eq(attendance.personnelId, personnelId), eq(attendance.date, date)))
+        .get()
+
+      if (!existing) {
+        return { ok: true, deleted: 0 }
+      }
+
+      db.delete(attendance).where(eq(attendance.id, existing.id)).run()
+
+      // Якщо чистили сьогоднішню дату — currentStatusCode особи теж скидаємо.
+      // Інваріант: currentStatusCode має відображати поточний (на сьогодні) стан;
+      // якщо запису більше нема — стан не визначено.
+      if (date === todayLocalIso()) {
+        db.update(personnel)
+          .set({
+            currentStatusCode: null,
+            updatedAt: sql`(strftime('%Y-%m-%d %H:%M:%f','now'))`
+          })
+          .where(eq(personnel.id, personnelId))
+          .run()
+      }
+
+      // Audit log
+      db.insert(auditLog)
+        .values({
+          tableName: 'attendance',
+          recordId: personnelId,
+          action: 'delete',
+          oldValues: JSON.stringify({ personnelId, date, statusCode: existing.statusCode })
+        })
+        .run()
+
+      return { ok: true, deleted: 1 }
     }
   )
 
@@ -2817,17 +2872,6 @@ export function registerIpcHandlers(): void {
         personnelByPos.set(p.currentPositionIdx, p)
       }
     }
-
-    // Get all subdivisions for tree ordering
-    const allSubs = db
-      .select()
-      .from(subdivisions)
-      .where(eq(subdivisions.isActive, true))
-      .orderBy(asc(subdivisions.sortOrder))
-      .all()
-
-    // Build subdivision order map
-    const subOrderMap = new Map(allSubs.map((s) => [s.id, s]))
 
     // Enrich positions with personnel data
     const rows = allPos.map((pos) => {

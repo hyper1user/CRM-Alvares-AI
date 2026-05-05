@@ -498,7 +498,7 @@ export default function Dashboard(): JSX.Element {
               <div style={{ color: 'var(--fg-3)', fontSize: 12 }}>Переміщень немає</div>
             ) : (
               <div className="timeline-rail">
-                {recentMovements.map((m, i) => {
+                {recentMovements.map((m) => {
                   const when = m.dateFrom ? dayjs(m.dateFrom) : null
                   const isNow = when && when.isSame(today, 'day')
                   return (

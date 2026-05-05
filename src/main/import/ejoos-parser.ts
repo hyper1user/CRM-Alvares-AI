@@ -4,7 +4,7 @@
  */
 import * as XLSX from 'xlsx'
 import { validateIpn } from '@shared/validators'
-import { cellStr, cellDate, cellNum, splitFullName, cleanString, parseDateValue } from './parse-utils'
+import { cellStr, cellDate, cellNum, splitFullName } from './parse-utils'
 import type {
   ParsedPosition,
   ParsedPersonnel,

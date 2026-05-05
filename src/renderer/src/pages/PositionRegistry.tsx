@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Button, Space, Tag, Segmented, Input, Popconfirm, message } from 'antd'
-import { PlusOutlined, BankOutlined, EditOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { ProTable, type ProColumns } from '@ant-design/pro-components'
 import { usePositionList } from '../hooks/usePositions'
 import { useLookups } from '../hooks/useLookups'

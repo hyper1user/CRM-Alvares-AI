@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Typography, Button, Space, Input, Select, Popconfirm, Tag, message } from 'antd'
+import { Button, Space, Input, Select, Popconfirm, Tag, message } from 'antd'
 import {
   FolderOpenOutlined,
   FileWordOutlined,
@@ -9,8 +9,6 @@ import {
 import { ProTable, type ProColumns } from '@ant-design/pro-components'
 import { useGeneratedDocuments } from '@renderer/hooks/useDocuments'
 import type { GeneratedDocumentListItem } from '@shared/types/document'
-
-const { Title } = Typography
 
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   order: { label: 'Наказ', color: 'blue' },

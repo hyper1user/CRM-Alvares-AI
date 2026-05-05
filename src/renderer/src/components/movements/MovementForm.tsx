@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { Drawer, Form, Input, Select, DatePicker, Button, Space, App } from 'antd'
-import dayjs from 'dayjs'
 import PersonnelSearchSelect from './PersonnelSearchSelect'
 import { useLookups } from '../../hooks/useLookups'
 import { MOVEMENT_ORDER_TYPES, ORDER_ISSUERS } from '@shared/enums/categories'

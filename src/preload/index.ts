@@ -93,6 +93,8 @@ const api = {
     ipcRenderer.invoke(IPC.ATTENDANCE_GET_MONTH, year, month, subdivisionCode),
   attendanceSetDay: (personnelId: number, date: string, statusCode: string) =>
     ipcRenderer.invoke(IPC.ATTENDANCE_SET_DAY, personnelId, date, statusCode),
+  attendanceClearDay: (personnelId: number, date: string) =>
+    ipcRenderer.invoke(IPC.ATTENDANCE_CLEAR_DAY, personnelId, date),
   attendanceSnapshot: (date: string) => ipcRenderer.invoke(IPC.ATTENDANCE_SNAPSHOT, date),
   attendanceCopyDay: (srcDate: string, dstDate: string, overwrite: boolean) =>
     ipcRenderer.invoke(IPC.ATTENDANCE_COPY_DAY, srcDate, dstDate, overwrite),

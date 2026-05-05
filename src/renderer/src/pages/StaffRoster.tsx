@@ -109,22 +109,6 @@ function getLocation(row: StaffRosterRow): string {
   return ''
 }
 
-// Determine subdivision header color based on hierarchy level
-function getSubdivisionColor(
-  group: SubdivisionGroup,
-  parentMap: Map<number, SubdivisionGroup[]>
-): { bg: string; text: string } {
-  // Root-level (no parent or parent is the main unit)
-  if (!group.subdivisionParentId) {
-    return { bg: '#2d5f2d', text: '#fff' }
-  }
-  // Check depth
-  const parent = parentMap.get(group.subdivisionParentId)
-  if (parent) {
-    return { bg: '#b45309', text: '#fff' } // platoon level
-  }
-  return { bg: '#c0392b', text: '#fff' } // squad/team level
-}
 
 // Map rankName → category
 const RANK_TO_CATEGORY = new Map<string, RankCategory>(

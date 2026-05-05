@@ -13,7 +13,6 @@ import {
   Space,
   Result,
   Spin,
-  Progress,
   Badge
 } from 'antd'
 import {
@@ -50,7 +49,6 @@ export default function ImportExport(): JSX.Element {
 
   // Data.xlsx state
   const [dataPhase, setDataPhase] = useState<DataPhase>('idle')
-  const [dataPath, setDataPath] = useState<string>('')
   const [dataResult, setDataResult] = useState<DataImportResult | null>(null)
   const [dataError, setDataError] = useState<string>('')
 
@@ -127,7 +125,6 @@ export default function ImportExport(): JSX.Element {
     ])
     if (!filePath) return
 
-    setDataPath(filePath)
     setDataPhase('loading')
     setDataResult(null)
     setDataError('')

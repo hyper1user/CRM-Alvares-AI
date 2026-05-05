@@ -794,6 +794,7 @@ export default function PersonnelCard(): JSX.Element {
         onClose={() => setStatusDrawerOpen(false)}
         onSaved={() => { refetchStatuses(); refetch() }}
         personnelId={person.id}
+        personSubdivision={person.currentSubdivision}
       />
     </>
   )

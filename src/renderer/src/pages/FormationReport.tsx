@@ -175,7 +175,7 @@ export default function FormationReport(): JSX.Element {
               </div>
             </div>
 
-            {rows.map((r, i) => (
+            {rows.map((r) => (
               <div
                 key={r.l}
                 className="formation-row"

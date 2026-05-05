@@ -6,7 +6,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, unlinkSync } from 'fs'
 import { getDatabase } from '../db/connection'
 import { documentTemplates, generatedDocuments, settings, personnel, auditLog } from '../db/schema'
-import { eq, desc, like, or } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { generateDocx, getTemplateTags, createMinimalDocx } from './docx-engine'
 import type {
   DocumentTemplate,

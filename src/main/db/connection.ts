@@ -1,12 +1,14 @@
 import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import * as schema from './schema'
 import { seedDatabase } from './seed'
 
-let db: ReturnType<typeof drizzle> | null = null
+export type AppDatabase = BetterSQLite3Database<typeof schema>
+
+let db: AppDatabase | null = null
 let sqlite: InstanceType<typeof Database> | null = null
 
 function getDbPath(): string {
@@ -18,7 +20,7 @@ function getDbPath(): string {
   return join(dbDir, 'personnel.db')
 }
 
-export function initDatabase(): ReturnType<typeof drizzle> {
+export function initDatabase(): AppDatabase {
   if (db) return db
 
   const dbPath = getDbPath()
@@ -31,7 +33,7 @@ export function initDatabase(): ReturnType<typeof drizzle> {
   sqlite.pragma('foreign_keys = ON')
   sqlite.pragma('busy_timeout = 5000')
 
-  db = drizzle(sqlite, { schema })
+  db = drizzle<typeof schema>(sqlite, { schema })
 
   // Створюємо таблиці якщо їх немає
   createTables(sqlite)
@@ -43,7 +45,7 @@ export function initDatabase(): ReturnType<typeof drizzle> {
   return db
 }
 
-export function getDatabase(): ReturnType<typeof drizzle> {
+export function getDatabase(): AppDatabase {
   if (!db) throw new Error('Database not initialized. Call initDatabase() first.')
   return db
 }
@@ -654,7 +656,7 @@ function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
 }
 
 function fixDispositionSubdivisions(sqliteDb: InstanceType<typeof Database>): void {
-  const fixed = sqliteDb.exec(`
+  sqliteDb.exec(`
     UPDATE personnel SET
       current_subdivision = 'розпорядження',
       current_position_idx = 'розпоряджен'

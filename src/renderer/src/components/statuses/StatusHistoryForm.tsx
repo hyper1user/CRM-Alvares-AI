@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { Drawer, Form, Select, DatePicker, Input, Button, Space, Tag, App } from 'antd'
-import dayjs from 'dayjs'
 import PersonnelSearchSelect from '../movements/PersonnelSearchSelect'
 import { useLookups } from '../../hooks/useLookups'
 
@@ -9,20 +8,30 @@ interface Props {
   onClose: () => void
   onSaved: () => void
   personnelId?: number
+  personSubdivision?: string | null
 }
 
 export default function StatusHistoryForm({
   open,
   onClose,
   onSaved,
-  personnelId
+  personnelId,
+  personSubdivision
 }: Props): JSX.Element {
   const [form] = Form.useForm()
   const { message } = App.useApp()
   const { statusTypes } = useLookups()
 
+  // v0.10.x: для людей у розпорядженні приховуємо бойові коди (onSupply=true).
+  // Бекенд має дзеркальну перевірку — ця фільтрація лише про UX, щоб
+  // користувач не бачив варіантів, які точно відмовлять.
+  const isInDisposition = personSubdivision === 'розпорядження'
+  const visibleStatuses = isInDisposition
+    ? statusTypes.filter((st) => !st.onSupply)
+    : statusTypes
+
   // Group statuses by groupName for optgroup display
-  const groupedStatuses = statusTypes.reduce(
+  const groupedStatuses = visibleStatuses.reduce(
     (acc, st) => {
       const group = st.groupName || 'Інше'
       if (!acc[group]) acc[group] = []
