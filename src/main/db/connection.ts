@@ -610,6 +610,12 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // Без цього юзер-доданий бойовий код (РОП «На позиції») потрапляв у
   // «На ППД» замість «Бойове завдання».
   addIsCombatColumn(sqliteDb)
+
+  // v1.3.0: синхронізація DGV-кодів з ЕЖООС/Табель.xlsm. Перейменовуємо
+  // 'заг' → '200' у dgv_marks (узгоджено з status_types.code='200'='Загинув').
+  // Решта виправлень (ВПХ/вд/вп/Бух/нар) — це тільки опис у TS-коді,
+  // самі коди в БД не змінюються.
+  renameDgvCodeZagTo200(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -913,6 +919,25 @@ function addIsCombatColumn(sqliteDb: InstanceType<typeof Database>): void {
   const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
   if (changes.cnt > 0) {
     console.log(`[db] addIsCombatColumn: backfill is_combat=1 для ${changes.cnt} кодів (РВ/РЗ/РШ)`)
+  }
+}
+
+// v1.3.0: до v1.3.0 ДГВ-табель використовував код 'заг' (Загинув). У ЕЖООС/
+// Табель.xlsm цей же стан позначається як '200' — і у нас же `status_types`
+// з v0.8.2 теж має код '200'. Уніфікуємо: dgv_marks.dgv_code='заг' → '200'.
+// Idempotent: якщо таких рядків нема — UPDATE нічого не зробить.
+function renameDgvCodeZagTo200(sqliteDb: InstanceType<typeof Database>): void {
+  // dgv_marks може ще не існувати на свіжих БД (createTables створює
+  // таблицю тут же поряд) — тому перевіряємо існування таблиці.
+  const tbl = sqliteDb
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='dgv_marks'`)
+    .get() as { name: string } | undefined
+  if (!tbl) return
+
+  const stmt = sqliteDb.prepare(`UPDATE dgv_marks SET dgv_code = '200' WHERE dgv_code = 'заг'`)
+  const result = stmt.run()
+  if (result.changes > 0) {
+    console.log(`[db] renameDgvCodeZagTo200: оновлено ${result.changes} записів dgv_marks (заг → 200)`)
   }
 }
 

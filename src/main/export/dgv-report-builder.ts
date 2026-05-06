@@ -7,7 +7,7 @@ import { dialog } from 'electron'
 import { getDatabase } from '../db/connection'
 import { personnel, ranks, positions, dgvMarks, dgvMonthMeta } from '../db/schema'
 import { eq, and, asc, sql } from 'drizzle-orm'
-import { DGV_CODE_MAP } from '@shared/enums/dgv-codes'
+import { DGV_CODE_MAP, PAY_100_CODES } from '@shared/enums/dgv-codes'
 import type { DgvPeriod } from '@shared/types/dgv'
 
 const MONTH_NAMES_GENITIVE = [
@@ -20,16 +20,19 @@ const MONTH_NAMES = [
   'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'
 ]
 
-// Absence code → human-readable reason for section 7
+// v1.3.0: формулювання звірені з ЕЖООС/Табель.xlsm (аркуш «База»).
+// Ключі — TS-ключі для секції 7 рапорту («Не брав участі»). Коди, що
+// не в map'і, фолбекнуться на DGV_CODE_MAP[code].name (див. нижче).
 const ABSENCE_REASON_MAP: Record<string, string> = {
-  'шп': 'Штатна позиція',
-  'ВПХ': 'Відрядження',
-  'вд': 'Відпустка додаткова',
-  'вп': 'Відпустка після поранення',
-  'ВЛК': 'ВЛК',
-  'Бух': 'Бухгалтерія',
-  'нар': 'Наряд',
-  'п.сзч': 'Повернення після СЗЧ'
+  'шп': 'Лікування',
+  'ЛП': 'Лікування',
+  'ВПХ': 'Відпустка по хворобі',
+  'ВПС': 'Відпустка за сімейними обставинами',
+  'ВПП': 'Відпустка для лікування після поранення',
+  'вп': 'Основна щорічна відпустка',
+  'адп': 'Адаптація',
+  'вд': 'Відрядження',
+  'ВЛК': 'Проходження військово-лікарської комісії'
 }
 
 interface PersonData {
@@ -45,13 +48,19 @@ interface PersonData {
   punishmentOrder: string
 }
 
-// Calculate periods: group consecutive days with the same code
+// v1.3.0: targetCode може бути string ОЧИСЛОВО для одного коду, або string[]
+// для об'єднання періодів кількох кодів (напр. ['100','роп'] для секції 1 рапорту,
+// де обидва дають 100К-виплату). Хронологічний порядок зберігається природно
+// — ми проходимо по днях у порядку зростання дати.
 export function calculatePeriods(
   days: Record<string, string>,
   year: number,
   month: number,
-  targetCode?: string
+  targetCode?: string | string[]
 ): DgvPeriod[] {
+  const targetSet = targetCode
+    ? new Set(Array.isArray(targetCode) ? targetCode : [targetCode])
+    : null
   const daysInMonth = new Date(year, month, 0).getDate()
   const periods: DgvPeriod[] = []
   let currentCode: string | null = null
@@ -61,13 +70,13 @@ export function calculatePeriods(
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
     const code = days[dateStr] ?? null
 
-    const matches = targetCode ? code === targetCode : code !== null
+    const matches = targetSet ? code !== null && targetSet.has(code) : code !== null
 
     if (matches && code === currentCode) {
       // Continue current period
     } else {
       // Close previous period if any
-      if (currentCode && (targetCode ? currentCode === targetCode : true)) {
+      if (currentCode && (targetSet ? targetSet.has(currentCode) : true)) {
         const mm = String(month).padStart(2, '0')
         periods.push({
           code: currentCode,
@@ -237,7 +246,8 @@ export async function buildDgvReport(
     const codes = getUsedCodes(p.days)
     if (codes.size === 0) continue
 
-    if (codes.has('100')) section1.push(p)
+    // v1.3.0: section1 збирає всіх з кодами категорії pay_100 (наразі '100'+'роп').
+    if (PAY_100_CODES.some((c) => codes.has(c))) section1.push(p)
     if (codes.has('30')) section2.push(p)
     if (p.punishmentReason) section6.push(p)
 
@@ -299,7 +309,7 @@ export async function buildDgvReport(
 
   // Section 1 data
   section1.forEach((p, idx) => {
-    const periods = calculatePeriods(p.days, year, month, '100')
+    const periods = calculatePeriods(p.days, year, month, PAY_100_CODES)
     const row = ws.addRow([
       idx + 1,
       formatPersonTitle(p),
