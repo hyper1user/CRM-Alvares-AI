@@ -14,9 +14,9 @@ import type { AttendanceMonthData } from '@shared/types/attendance'
 
 type Cat = 'duty' | 'combat' | 'medical' | 'leave' | 'absent' | 'other'
 
-const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
-
-function categorize(code: string, group: string): Cat {
+// v1.2.1: combat-список читається з status_types.isCombat — щоб користувацькі
+// коди (РОП «На позиції») потрапляли у "Бойове завдання".
+function categorize(code: string, group: string, combatCodes: Set<string>): Cat {
   if (group === 'Лікування') return 'medical'
   if (group === 'Відпустка' || group === 'Відрядження') return 'leave'
   if (
@@ -27,7 +27,7 @@ function categorize(code: string, group: string): Cat {
     group === 'Ні'
   )
     return 'absent'
-  if (group === 'Так') return COMBAT_CODES.has(code) ? 'combat' : 'duty'
+  if (group === 'Так') return combatCodes.has(code) ? 'combat' : 'duty'
   return 'other'
 }
 
@@ -62,6 +62,11 @@ export default function FormationReport(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date.format('YYYY-MM-DD'), globalSubdivision])
 
+  const combatCodes = useMemo(
+    () => new Set(statusTypes.filter((s) => s.isCombat).map((s) => s.code)),
+    [statusTypes]
+  )
+
   const byCat = useMemo<Record<Cat, number>>(() => {
     const acc: Record<Cat, number> = {
       duty: 0, combat: 0, medical: 0, leave: 0, absent: 0, other: 0,
@@ -73,10 +78,10 @@ export default function FormationReport(): JSX.Element {
       const code = row.days[dateStr]
       if (!code) continue
       const group = stMap.get(code) || ''
-      acc[categorize(code, group)] += 1
+      acc[categorize(code, group, combatCodes)] += 1
     }
     return acc
-  }, [monthData, date, statusTypes])
+  }, [monthData, date, statusTypes, combatCodes])
 
   const total = monthData?.rows.length ?? 0
   const present = byCat.duty + byCat.combat

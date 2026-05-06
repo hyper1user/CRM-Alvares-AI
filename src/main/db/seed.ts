@@ -63,6 +63,7 @@ export function seedDatabase(db: BetterSQLite3Database<typeof schema>): void {
         name: s.name,
         groupName: s.groupName,
         onSupply: s.onSupply,
+        isCombat: s.isCombat ?? false,
         rewardAmount: s.rewardAmount,
         sortOrder: s.sortOrder,
         colorCode: s.colorCode

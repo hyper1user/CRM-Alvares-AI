@@ -11,10 +11,11 @@ import StatusHistoryForm from '../components/statuses/StatusHistoryForm'
 type Cat = 'duty' | 'combat' | 'medical' | 'leave' | 'absent' | 'other'
 type CatFilter = 'all' | 'combat' | 'medical' | 'absent' | 'disposition'
 
-const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
 const DISPOSITION_SUBDIVISION = 'розпорядження'
 
-function categorize(code: string, group: string): Cat {
+// v1.2.1: combat-список читається з status_types.isCombat — щоб користувацькі
+// коди (РОП «На позиції») потрапляли у "combat" категорію.
+function categorize(code: string, group: string, combatCodes: Set<string>): Cat {
   if (group === 'Лікування') return 'medical'
   if (group === 'Відпустка' || group === 'Відрядження') return 'leave'
   if (
@@ -25,7 +26,7 @@ function categorize(code: string, group: string): Cat {
     group === 'Ні'
   )
     return 'absent'
-  if (group === 'Так') return COMBAT_CODES.has(code) ? 'combat' : 'duty'
+  if (group === 'Так') return combatCodes.has(code) ? 'combat' : 'duty'
   return 'other'
 }
 
@@ -78,6 +79,12 @@ export default function StatusBoard(): JSX.Element {
     [statusTypes]
   )
 
+  // v1.2.1: combat-коди з прапора БД, не з hardcoded списку.
+  const combatCodes = useMemo(
+    () => new Set(statusTypes.filter((s) => s.isCombat).map((s) => s.code)),
+    [statusTypes]
+  )
+
   // Personnel filtered by current view: при filter='disposition' показуємо
   // лише тих, хто в розпорядженні. Інші filter'и не обмежують особовий
   // склад — обмежують лише видимі колонки за категорією.
@@ -110,7 +117,7 @@ export default function StatusBoard(): JSX.Element {
       filter === 'disposition'
         ? sortedStatuses
         : sortedStatuses.filter((s) => {
-            const cat = categorize(s.code, s.groupName)
+            const cat = categorize(s.code, s.groupName, combatCodes)
             return inFilter(cat, filter)
           })
     return [...filtered].sort((a, b) => {
@@ -247,7 +254,7 @@ export default function StatusBoard(): JSX.Element {
       {/* Kanban */}
       <div className="kanban">
         {visibleColumns.map((col) => {
-          const cat = categorize(col.code, col.groupName)
+          const cat = categorize(col.code, col.groupName, combatCodes)
           const list = byStatus[col.code] ?? []
           const expanded = expandedCols.has(col.code)
           const visible = expanded ? list : list.slice(0, VISIBLE_CARDS)

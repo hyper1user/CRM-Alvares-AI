@@ -18,6 +18,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useStatisticsSummary, useStatisticsByStatus } from '../hooks/useStatistics'
 import { useMovementList } from '../hooks/useMovements'
 import { usePersonnelList } from '../hooks/usePersonnel'
+import { useLookups } from '../hooks/useLookups'
 import type { SubdivisionTreeNode } from '@shared/types/position'
 import { buildCompanyTree } from '@shared/utils/company-structure'
 
@@ -34,18 +35,17 @@ const CAT_COLORS: Record<Cat, string> = {
 
 const CAT_LABELS: Record<Cat, string> = {
   duty: 'На ППД',
-  combat: 'Бойове завдання',
+  combat: 'На позиціях',
   medical: 'Медичні',
   leave: 'Відпустки',
   absent: 'Відсутні',
   other: 'Інші',
 }
 
-// v0.8.2: ВБВ більше не "Виконання бойового завдання", а "Вибув" (заглушка табелю).
-// Combat — лише фактичне перебування в полі: РВ, РЗ, РШ.
-const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
-
-function categorize(code: string, group: string): Cat {
+// v1.2.1: «бойове розташування» більше не hardcoded {РВ,РЗ,РШ}, а читається
+// з status_types.isCombat — щоб юзер додавав нові коди (РОП «На позиції»…)
+// без зміни коду додатку. categorize() тепер чистий від hardcoded списку.
+function categorize(code: string, group: string, combatCodes: Set<string>): Cat {
   if (group === 'Лікування') return 'medical'
   if (group === 'Відпустка' || group === 'Відрядження') return 'leave'
   if (
@@ -56,7 +56,7 @@ function categorize(code: string, group: string): Cat {
     group === 'Ні'
   )
     return 'absent'
-  if (group === 'Так') return COMBAT_CODES.has(code) ? 'combat' : 'duty'
+  if (group === 'Так') return combatCodes.has(code) ? 'combat' : 'duty'
   return 'other'
 }
 
@@ -280,6 +280,11 @@ export default function Dashboard(): JSX.Element {
   const { data: summary, loading: summaryLoading } = useStatisticsSummary()
   const { data: byStatus } = useStatisticsByStatus(donutDateAt)
   const { data: movements } = useMovementList({})
+  const { statusTypes } = useLookups()
+  const combatCodes = useMemo(
+    () => new Set(statusTypes.filter((s) => s.isCombat).map((s) => s.code)),
+    [statusTypes]
+  )
   // v0.8.3 → v0.8.5: дерево орг-структури 12 ШР будується на льоту з ОС роти.
   // Без subdivision filter — щоб у 5-й взвод (Розпорядження) потрапляли
   // ті, у кого `currentSubdivision='розпорядження'` (вони фактично з 12 ШР,
@@ -303,10 +308,10 @@ export default function Dashboard(): JSX.Element {
       other: 0,
     }
     for (const s of byStatus) {
-      acc[categorize(s.statusCode, s.groupName)] += s.count
+      acc[categorize(s.statusCode, s.groupName, combatCodes)] += s.count
     }
     return acc
-  }, [byStatus])
+  }, [byStatus, combatCodes])
 
   if (summaryLoading) {
     return (

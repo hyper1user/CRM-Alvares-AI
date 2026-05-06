@@ -24,12 +24,14 @@ import {
 } from '@ant-design/icons'
 import { STATUS_GROUP_NAMES, type StatusGroupName } from '@shared/validators'
 import type { StatusTypeEntry } from '@shared/enums/status-codes'
+import { invalidateLookups } from '../hooks/useLookups'
 
 type FormValues = {
   code: string
   name: string
   groupName: StatusGroupName
   onSupply: boolean
+  isCombat: boolean
   rewardAmount: number | null
   sortOrder: number
   colorCode: string
@@ -119,6 +121,7 @@ export default function StatusTypesAdmin(): JSX.Element {
     form.resetFields()
     form.setFieldsValue({
       onSupply: false,
+      isCombat: false,
       sortOrder: 99,
       colorCode: '#999999',
       groupName: 'Так',
@@ -134,6 +137,7 @@ export default function StatusTypesAdmin(): JSX.Element {
       name: record.name,
       groupName: record.groupName as StatusGroupName,
       onSupply: record.onSupply,
+      isCombat: record.isCombat ?? false,
       rewardAmount: record.rewardAmount,
       sortOrder: record.sortOrder,
       colorCode: record.colorCode || '#999999'
@@ -166,6 +170,7 @@ export default function StatusTypesAdmin(): JSX.Element {
       }
       await window.api.statusTypeDelete(record.id)
       message.success(`Статус «${record.code}» видалено`)
+      await invalidateLookups()
       fetchData()
     } catch (err) {
       message.error(`Помилка: ${err instanceof Error ? err.message : String(err)}`)
@@ -185,6 +190,7 @@ export default function StatusTypesAdmin(): JSX.Element {
           message.success(`Статус «${values.code}» додано`)
         }
         setDrawerOpen(false)
+        await invalidateLookups()
         fetchData()
       } catch (err) {
         message.error(`Помилка: ${err instanceof Error ? err.message : String(err)}`)
@@ -265,6 +271,7 @@ export default function StatusTypesAdmin(): JSX.Element {
                 <th>Назва</th>
                 <th style={{ width: 180 }}>Група</th>
                 <th style={{ width: 110 }}>На забезп.</th>
+                <th style={{ width: 130 }}>Бойове</th>
                 <th style={{ width: 130 }}>Винагорода</th>
                 <th style={{ width: 80 }}>Порядок</th>
                 <th style={{ width: 80 }}>Колір</th>
@@ -275,7 +282,7 @@ export default function StatusTypesAdmin(): JSX.Element {
               {loading && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}
                   >
                     Завантаження…
@@ -285,7 +292,7 @@ export default function StatusTypesAdmin(): JSX.Element {
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}
                   >
                     Не знайдено
@@ -329,6 +336,13 @@ export default function StatusTypesAdmin(): JSX.Element {
                         </Tag>
                       </td>
                       <td>{r.onSupply ? <Tag color="green">так</Tag> : <span className="dim">—</span>}</td>
+                      <td>
+                        {r.isCombat ? (
+                          <Tag color="red">бойове</Tag>
+                        ) : (
+                          <span className="dim">—</span>
+                        )}
+                      </td>
                       <td className="mono tnum">
                         {r.rewardAmount ? r.rewardAmount.toLocaleString('uk-UA') : '—'}
                       </td>
@@ -466,6 +480,20 @@ export default function StatusTypesAdmin(): JSX.Element {
             label="На бойовому забезпеченні"
             valuePropName="checked"
             extra="Тільки бойові коди групи «Так» (РВ/РЗ/РШ/ППД/АДП/БЗВП). Доступні для розпорядженців — ні."
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="isCombat"
+            label="Бойове розташування"
+            valuePropName="checked"
+            extra={
+              <span>
+                У Дашборді donut'і й фільтрах потрапляє у{' '}
+                <b>«Бойове завдання»</b>, а не в <b>«На ППД»</b>. Для РВ/РЗ/РШ/РОП — увімкнено.
+              </span>
+            }
           >
             <Switch />
           </Form.Item>

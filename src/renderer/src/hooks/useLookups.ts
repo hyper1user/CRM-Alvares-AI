@@ -14,6 +14,7 @@ interface StatusType {
   name: string
   groupName: string
   onSupply: boolean | null
+  isCombat?: boolean | null
   sortOrder: number
   colorCode: string | null
 }
@@ -66,8 +67,43 @@ interface LookupData {
   loading: boolean
 }
 
-// Cache lookups in module scope so they're loaded only once
+// v1.2.1: pub/sub з invalidate для CRUD на довідниках. Без нього cache
+// зберігає stale-дані після правки в адмінці — donut/Канбан/Реєстр не бачать
+// нових кольорів/категорій, поки не перезапустити додаток.
 let cached: Omit<LookupData, 'loading'> | null = null
+const subscribers = new Set<(d: Omit<LookupData, 'loading'>) => void>()
+let inFlight: Promise<Omit<LookupData, 'loading'>> | null = null
+
+async function fetchLookups(): Promise<Omit<LookupData, 'loading'>> {
+  if (inFlight) return inFlight
+  inFlight = Promise.all([
+    window.api.ranksList(),
+    window.api.statusTypesList(),
+    window.api.subdivisionsList(),
+    window.api.bloodTypesList(),
+    window.api.contractTypesList(),
+    window.api.educationLevelsList(),
+    window.api.positionsList({})
+  ]).then(([ranks, statusTypes, subdivisions, bloodTypes, contractTypes, educationLevels, positions]) => {
+    const result = { ranks, statusTypes, subdivisions, bloodTypes, contractTypes, educationLevels, positions }
+    cached = result
+    inFlight = null
+    return result
+  })
+  return inFlight
+}
+
+/**
+ * Скинути lookups-cache і ре-фетчити. Викликати ПІСЛЯ CRUD-операцій
+ * у довідниках (status_types, subdivisions, ranks, etc.) — щоб усі
+ * компоненти, що підписані через useLookups, отримали свіжі дані.
+ */
+export async function invalidateLookups(): Promise<void> {
+  cached = null
+  inFlight = null
+  const fresh = await fetchLookups()
+  subscribers.forEach((fn) => fn(fresh))
+}
 
 export function useLookups(): LookupData {
   const [data, setData] = useState<Omit<LookupData, 'loading'>>(
@@ -85,23 +121,22 @@ export function useLookups(): LookupData {
   const fetched = useRef(!!cached)
 
   useEffect(() => {
-    if (fetched.current) return
-    fetched.current = true
-
-    Promise.all([
-      window.api.ranksList(),
-      window.api.statusTypesList(),
-      window.api.subdivisionsList(),
-      window.api.bloodTypesList(),
-      window.api.contractTypesList(),
-      window.api.educationLevelsList(),
-      window.api.positionsList({})
-    ]).then(([ranks, statusTypes, subdivisions, bloodTypes, contractTypes, educationLevels, positions]) => {
-      const result = { ranks, statusTypes, subdivisions, bloodTypes, contractTypes, educationLevels, positions }
-      cached = result
-      setData(result)
+    if (!fetched.current) {
+      fetched.current = true
+      fetchLookups().then((result) => {
+        setData(result)
+        setLoading(false)
+      })
+    }
+    // Підписуємося на invalidate — щоб після правки з адмінки оновитись.
+    const subscriber = (fresh: Omit<LookupData, 'loading'>): void => {
+      setData(fresh)
       setLoading(false)
-    })
+    }
+    subscribers.add(subscriber)
+    return () => {
+      subscribers.delete(subscriber)
+    }
   }, [])
 
   return { ...data, loading }

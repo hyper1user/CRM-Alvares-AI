@@ -4,6 +4,9 @@ export interface StatusTypeEntry {
   name: string
   groupName: string
   onSupply: boolean
+  // v1.2.1: бойове розташування — категоризація Дашборду/Реєстру
+  // ставить такі статуси в "Бойове завдання", не в "На ППД".
+  isCombat?: boolean
   rewardAmount: number | null
   sortOrder: number
   colorCode: string
@@ -17,9 +20,9 @@ export interface StatusTypeEntry {
 // включаючи відпустки/шпиталь — для відміток ВП/ШП по днях.
 export const STATUS_TYPES: StatusTypeEntry[] = [
   // Група "Так" — присутні в підрозділі / на бойовому забезпеченні
-  { id: 1, code: 'РВ', name: 'Район виконання', groupName: 'Так', onSupply: true, rewardAmount: 100000, sortOrder: 1, colorCode: '#52c41a' },
-  { id: 2, code: 'РЗ', name: 'Район зосередження', groupName: 'Так', onSupply: true, rewardAmount: 30000, sortOrder: 2, colorCode: '#73d13d' },
-  { id: 3, code: 'РШ', name: 'Район штаб', groupName: 'Так', onSupply: true, rewardAmount: 50000, sortOrder: 3, colorCode: '#95de64' },
+  { id: 1, code: 'РВ', name: 'Район виконання', groupName: 'Так', onSupply: true, isCombat: true, rewardAmount: 100000, sortOrder: 1, colorCode: '#52c41a' },
+  { id: 2, code: 'РЗ', name: 'Район зосередження', groupName: 'Так', onSupply: true, isCombat: true, rewardAmount: 30000, sortOrder: 2, colorCode: '#73d13d' },
+  { id: 3, code: 'РШ', name: 'Район штаб', groupName: 'Так', onSupply: true, isCombat: true, rewardAmount: 50000, sortOrder: 3, colorCode: '#95de64' },
   { id: 4, code: 'ППД', name: 'ППД', groupName: 'Так', onSupply: true, rewardAmount: null, sortOrder: 4, colorCode: '#b7eb8f' },
   { id: 5, code: 'АДП', name: 'Адаптація', groupName: 'Так', onSupply: true, rewardAmount: null, sortOrder: 5, colorCode: '#d9f7be' },
   { id: 21, code: 'БЗВП', name: 'БЗВП', groupName: 'Так', onSupply: true, rewardAmount: null, sortOrder: 6, colorCode: '#a0d911' },

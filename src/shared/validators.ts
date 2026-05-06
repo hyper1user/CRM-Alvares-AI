@@ -283,6 +283,7 @@ export const statusTypeCreateSchema = z.object({
     required_error: 'Оберіть групу'
   }),
   onSupply: z.boolean().default(false),
+  isCombat: z.boolean().default(false),
   rewardAmount: z.number().int().nonnegative().nullable().optional(),
   sortOrder: z.number().int().nonnegative().default(99),
   colorCode: z.string().regex(HEX_COLOR, 'Формат: #RRGGBB або #RGB').default('#999999')

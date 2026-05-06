@@ -23,8 +23,6 @@ import { PLATOONS, getPlatoonCodeForPerson, type PlatoonCode } from '@shared/uti
 
 type Cat = 'all' | 'duty' | 'combat' | 'medical' | 'leave' | 'absent'
 
-const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
-
 const CAT_LABELS: Record<Cat, string> = {
   all: 'Усі',
   duty: 'ППД',
@@ -34,7 +32,11 @@ const CAT_LABELS: Record<Cat, string> = {
   absent: 'Відс',
 }
 
-function categorizeStatus(code: string | null, group: string | null): Cat | 'other' {
+function categorizeStatus(
+  code: string | null,
+  group: string | null,
+  combatCodes: Set<string>
+): Cat | 'other' {
   if (!code || !group) return 'other'
   if (group === 'Лікування') return 'medical'
   if (group === 'Відпустка' || group === 'Відрядження') return 'leave'
@@ -46,7 +48,7 @@ function categorizeStatus(code: string | null, group: string | null): Cat | 'oth
     group === 'Ні'
   )
     return 'absent'
-  if (group === 'Так') return COMBAT_CODES.has(code) ? 'combat' : 'duty'
+  if (group === 'Так') return combatCodes.has(code) ? 'combat' : 'duty'
   return 'other'
 }
 
@@ -128,6 +130,12 @@ export default function PersonnelRegistry(): JSX.Element {
     return m
   }, [statusTypes])
 
+  // v1.2.1: combat-коди читаються з isCombat прапора, не hardcoded {РВ,РЗ,РШ}.
+  const combatCodes = useMemo(
+    () => new Set(statusTypes.filter((s) => s.isCombat).map((s) => s.code)),
+    [statusTypes]
+  )
+
   const filtered = useMemo(() => {
     let rows = data
     if (platoonFilter) {
@@ -137,19 +145,27 @@ export default function PersonnelRegistry(): JSX.Element {
       // present = groupName='Так' (duty + combat); missing = усе інше + ОС без статусу.
       // Дзеркалить логіку Дашборду: total = present + missing.
       rows = rows.filter((p) => {
-        const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
+        const cat = categorizeStatus(
+          p.currentStatusCode,
+          groupByCode[p.currentStatusCode || ''] ?? null,
+          combatCodes
+        )
         const isPresent = cat === 'duty' || cat === 'combat'
         return presenceFilter === 'present' ? isPresent : !isPresent
       })
     }
     if (catFilter !== 'all') {
       rows = rows.filter((p) => {
-        const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
+        const cat = categorizeStatus(
+          p.currentStatusCode,
+          groupByCode[p.currentStatusCode || ''] ?? null,
+          combatCodes
+        )
         return cat === catFilter
       })
     }
     return rows
-  }, [data, catFilter, groupByCode, platoonFilter, presenceFilter])
+  }, [data, catFilter, groupByCode, combatCodes, platoonFilter, presenceFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -390,7 +406,8 @@ export default function PersonnelRegistry(): JSX.Element {
               {paged.map((p, i) => {
                 const cat = categorizeStatus(
                   p.currentStatusCode,
-                  groupByCode[p.currentStatusCode || ''] ?? null
+                  groupByCode[p.currentStatusCode || ''] ?? null,
+                  combatCodes
                 )
                 const idx = (safePage - 1) * PAGE_SIZE + i + 1
                 return (

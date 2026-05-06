@@ -17,6 +17,11 @@ export const statusTypes = sqliteTable('status_types', {
   name: text('name').notNull(),
   groupName: text('group_name').notNull(),
   onSupply: integer('on_supply', { mode: 'boolean' }).default(true),
+  // isCombat = бойове розташування. Для категоризації Дашборду/Реєстру:
+  // потрапляє в «Бойове завдання» (combat), а не «На ППД» (duty).
+  // Прив'язане до status_type, не до коду — щоб юзер міг створювати
+  // нові бойові коди (РОП, СОП…) без зміни коду додатку.
+  isCombat: integer('is_combat', { mode: 'boolean' }).default(false),
   rewardAmount: integer('reward_amount'),
   sortOrder: integer('sort_order').notNull(),
   colorCode: text('color_code')

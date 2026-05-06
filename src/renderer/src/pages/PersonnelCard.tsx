@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card,
@@ -51,9 +51,13 @@ import dayjs from 'dayjs'
 
 const { Text } = Typography
 
-const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
-
-function pillClassForStatus(code: string | null | undefined, group: string | null | undefined): string {
+// v1.2.1: combat-список читається з status_types.isCombat — щоб користувацькі
+// коди (РОП «На позиції») мали правильну візуальну категорію.
+function pillClassForStatus(
+  code: string | null | undefined,
+  group: string | null | undefined,
+  combatCodes: Set<string>
+): string {
   if (!code || !group) return 'pill muted'
   if (group === 'Лікування') return 'pill medical'
   if (group === 'Відпустка' || group === 'Відрядження') return 'pill leave'
@@ -65,7 +69,7 @@ function pillClassForStatus(code: string | null | undefined, group: string | nul
     group === 'Ні'
   )
     return 'pill absent'
-  if (group === 'Так') return COMBAT_CODES.has(code) ? 'pill combat' : 'pill duty'
+  if (group === 'Так') return combatCodes.has(code) ? 'pill combat' : 'pill duty'
   return 'pill muted'
 }
 
@@ -153,6 +157,10 @@ export default function PersonnelCard(): JSX.Element {
   const navigate = useNavigate()
   const { data: person, loading, refetch } = usePersonnelCard(id ? Number(id) : null)
   const { bloodTypes, contractTypes, statusTypes } = useLookups()
+  const combatCodes = useMemo(
+    () => new Set(statusTypes.filter((s) => s.isCombat).map((s) => s.code)),
+    [statusTypes]
+  )
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [movementDrawerOpen, setMovementDrawerOpen] = useState(false)
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false)
@@ -625,7 +633,8 @@ export default function PersonnelCard(): JSX.Element {
               <span
                 className={pillClassForStatus(
                   person.currentStatusCode,
-                  statusTypes.find((s) => s.code === person.currentStatusCode)?.groupName
+                  statusTypes.find((s) => s.code === person.currentStatusCode)?.groupName,
+                  combatCodes
                 )}
               >
                 <span className="dot" />

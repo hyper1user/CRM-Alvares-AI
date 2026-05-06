@@ -84,6 +84,7 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       name TEXT NOT NULL,
       group_name TEXT NOT NULL,
       on_supply INTEGER DEFAULT 1,
+      is_combat INTEGER DEFAULT 0,
       reward_amount INTEGER,
       sort_order INTEGER NOT NULL,
       color_code TEXT
@@ -603,6 +604,12 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // Без цього всі імпортовані виключені мали однаковий момент імпорту →
   // сортування фактично не відрізнялось від попереднього updated_at-based.
   backfillExcludedAtFromMovements(sqliteDb)
+
+  // v1.2.1: is_combat колонка у status_types — категоризація Дашборду/Реєстру
+  // тепер читає прапор з БД, а не з hardcoded COMBAT_CODES = {РВ,РЗ,РШ}.
+  // Без цього юзер-доданий бойовий код (РОП «На позиції») потрапляв у
+  // «На ППД» замість «Бойове завдання».
+  addIsCombatColumn(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -884,6 +891,28 @@ function backfillExcludedAtFromMovements(sqliteDb: InstanceType<typeof Database>
   const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
   if (changes.cnt > 0) {
     console.log(`[db] backfillExcludedAtFromMovements: уточнено excluded_at для ${changes.cnt} виключених`)
+  }
+}
+
+function addIsCombatColumn(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  const hasColumn = cols.some((c) => c.name === 'is_combat')
+
+  if (!hasColumn) {
+    sqliteDb.exec('ALTER TABLE status_types ADD COLUMN is_combat INTEGER DEFAULT 0')
+    console.log('[db] addIsCombatColumn: додано колонку is_combat')
+  }
+
+  // Backfill для існуючих кодів — РВ/РЗ/РШ були COMBAT_CODES до v1.2.1.
+  // Idempotent: WHERE is_combat=0 пропустить вже виставлені.
+  sqliteDb.exec(`
+    UPDATE status_types
+    SET is_combat = 1
+    WHERE code IN ('РВ', 'РЗ', 'РШ') AND (is_combat IS NULL OR is_combat = 0)
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] addIsCombatColumn: backfill is_combat=1 для ${changes.cnt} кодів (РВ/РЗ/РШ)`)
   }
 }
 

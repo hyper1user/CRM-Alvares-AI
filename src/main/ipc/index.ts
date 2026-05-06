@@ -782,6 +782,7 @@ export function registerIpcHandlers(): void {
         name: parsed.data.name,
         groupName: parsed.data.groupName,
         onSupply: parsed.data.onSupply,
+        isCombat: parsed.data.isCombat,
         rewardAmount: parsed.data.rewardAmount ?? null,
         sortOrder: parsed.data.sortOrder,
         colorCode: parsed.data.colorCode
@@ -839,6 +840,7 @@ export function registerIpcHandlers(): void {
     if (patch.name !== undefined) updateValues.name = patch.name
     if (patch.groupName !== undefined) updateValues.groupName = patch.groupName
     if (patch.onSupply !== undefined) updateValues.onSupply = patch.onSupply
+    if (patch.isCombat !== undefined) updateValues.isCombat = patch.isCombat
     if (patch.rewardAmount !== undefined) updateValues.rewardAmount = patch.rewardAmount
     if (patch.sortOrder !== undefined) updateValues.sortOrder = patch.sortOrder
     if (patch.colorCode !== undefined) updateValues.colorCode = patch.colorCode
