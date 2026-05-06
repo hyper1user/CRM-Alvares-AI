@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Spin, Tooltip } from 'antd'
 import {
@@ -70,14 +70,36 @@ function KpiCard({
   value,
   footnote,
   accent,
+  onClick,
+  title,
 }: {
   label: string
   value: number
   footnote?: string
   accent?: string
+  onClick?: () => void
+  title?: string
 }): JSX.Element {
+  const clickable = typeof onClick === 'function'
   return (
-    <div className="card" style={{ padding: 14 }}>
+    <div
+      className={'card kpi-card' + (clickable ? ' clickable' : '')}
+      style={{ padding: 14 }}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onClick?.()
+              }
+            }
+          : undefined
+      }
+      title={title}
+    >
       <div className="kpi">
         <div className="label">{label}</div>
         <div className="value" style={accent ? { color: accent } : undefined}>
@@ -244,10 +266,19 @@ const QUICK_ACTIONS: Array<{ icon: JSX.Element; label: string; sub: string; to: 
   },
 ]
 
+type DonutPeriod = 'now' | '7d' | '30d'
+
 export default function Dashboard(): JSX.Element {
   const navigate = useNavigate()
+  const [donutPeriod, setDonutPeriod] = useState<DonutPeriod>('now')
+  const donutDateAt = useMemo<string | undefined>(() => {
+    if (donutPeriod === 'now') return undefined
+    const days = donutPeriod === '7d' ? 7 : 30
+    return dayjs().subtract(days, 'day').format('YYYY-MM-DD')
+  }, [donutPeriod])
+
   const { data: summary, loading: summaryLoading } = useStatisticsSummary()
-  const { data: byStatus } = useStatisticsByStatus()
+  const { data: byStatus } = useStatisticsByStatus(donutDateAt)
   const { data: movements } = useMovementList({})
   // v0.8.3 → v0.8.5: дерево орг-структури 12 ШР будується на льоту з ОС роти.
   // Без subdivision filter — щоб у 5-й взвод (Розпорядження) потрапляли
@@ -286,6 +317,17 @@ export default function Dashboard(): JSX.Element {
   }
 
   const total = summary.totalPersonnel
+  const totalPositions = summary.totalPositions
+  // "В наявності" = усі з groupName='Так' (duty + combat). Так табельно вважається
+  // присутність на службі, незалежно від того, на ППД боєць чи на бойовому виході.
+  // "Відсутні" = total - В наявності — гарантує інваріант "За списком = В наявності + Відсутні",
+  // навіть якщо в byCat не потрапили ОС без статусу (other).
+  const present = byCat.duty + byCat.combat
+  const missing = Math.max(0, total - present)
+  const manning = totalPositions ? Math.round((total / totalPositions) * 100) : 0
+  // Для donut'а на дату: сума по категоріях (може != поточному total —
+  // ОС могла бути додана/виключена з тих пір).
+  const donutTotal = (Object.values(byCat) as number[]).reduce((a, b) => a + b, 0)
   const donutData = (
     [
       { cat: 'duty' as Cat, v: byCat.duty },
@@ -329,32 +371,37 @@ export default function Dashboard(): JSX.Element {
         </div>
       </div>
 
-      {/* KPI row — 5 cards */}
-      <div className="hgrid" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-        <KpiCard label="За списком" value={total} footnote="осіб" />
+      {/* KPI row — 4 cards: за штатом / за списком / в наявності / відсутні */}
+      <div className="hgrid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <KpiCard
-          label="У строю"
-          value={byCat.duty}
-          footnote={pct(byCat.duty, total)}
+          label="За штатом"
+          value={totalPositions}
+          footnote="штатних посад"
+          onClick={() => navigate('/positions')}
+          title="Відкрити перелік штатних посад"
+        />
+        <KpiCard
+          label="За списком"
+          value={total}
+          footnote={`укомпл. ${manning}%`}
+          onClick={() => navigate('/personnel')}
+          title="Відкрити Реєстр особового складу"
+        />
+        <KpiCard
+          label="В наявності"
+          value={present}
+          footnote={`${pct(present, total)} списку`}
           accent={CAT_COLORS.duty}
-        />
-        <KpiCard
-          label="Бойове завдання"
-          value={byCat.combat}
-          footnote={pct(byCat.combat, total)}
-          accent={CAT_COLORS.combat}
-        />
-        <KpiCard
-          label="Медичні"
-          value={byCat.medical}
-          footnote={pct(byCat.medical, total)}
-          accent={CAT_COLORS.medical}
+          onClick={() => navigate('/personnel?presence=present')}
+          title="Реєстр: ОС зі статусом присутності «Так»"
         />
         <KpiCard
           label="Відсутні"
-          value={byCat.absent}
-          footnote={pct(byCat.absent, total)}
+          value={missing}
+          footnote={`${pct(missing, total)} списку`}
           accent={CAT_COLORS.absent}
+          onClick={() => navigate('/personnel?presence=missing')}
+          title="Реєстр: шпиталь, відпустки, відрядження, СЗЧ тощо"
         />
       </div>
 
@@ -364,9 +411,27 @@ export default function Dashboard(): JSX.Element {
           <div className="card-head">
             <h3>Розподіл за статусами</h3>
             <div className="seg-control">
-              <button className="on">Зараз</button>
-              <button>7 днів</button>
-              <button>30 днів</button>
+              <button
+                className={donutPeriod === 'now' ? 'on' : ''}
+                onClick={() => setDonutPeriod('now')}
+                title="Поточний снапшот"
+              >
+                Зараз
+              </button>
+              <button
+                className={donutPeriod === '7d' ? 'on' : ''}
+                onClick={() => setDonutPeriod('7d')}
+                title={`Стан на ${dayjs().subtract(7, 'day').format('DD.MM.YYYY')}`}
+              >
+                7 днів
+              </button>
+              <button
+                className={donutPeriod === '30d' ? 'on' : ''}
+                onClick={() => setDonutPeriod('30d')}
+                title={`Стан на ${dayjs().subtract(30, 'day').format('DD.MM.YYYY')}`}
+              >
+                30 днів
+              </button>
             </div>
           </div>
           <div
@@ -417,13 +482,15 @@ export default function Dashboard(): JSX.Element {
                       letterSpacing: '0.08em',
                     }}
                   >
-                    ВСЬОГО
+                    {donutPeriod === 'now'
+                      ? 'ВСЬОГО'
+                      : dayjs().subtract(donutPeriod === '7d' ? 7 : 30, 'day').format('DD.MM.YY')}
                   </div>
                   <div
                     className="tnum"
                     style={{ fontSize: 26, fontWeight: 600, lineHeight: 1 }}
                   >
-                    {total}
+                    {donutPeriod === 'now' ? total : donutTotal}
                   </div>
                 </div>
               </div>
@@ -463,7 +530,7 @@ export default function Dashboard(): JSX.Element {
                       {v}
                     </span>
                     <span className="mono dim" style={{ fontSize: 11 }}>
-                      {pct(v, total)}
+                      {pct(v, donutPeriod === 'now' ? total : donutTotal)}
                     </span>
                   </div>
                 )

@@ -87,9 +87,20 @@ export default function PersonnelRegistry(): JSX.Element {
   }, [platoonParam])
   const platoonInfo = platoonFilter ? PLATOONS.find((p) => p.code === platoonFilter) ?? null : null
 
+  const presenceParam = searchParams.get('presence')
+  const presenceFilter: 'present' | 'missing' | null =
+    presenceParam === 'present' || presenceParam === 'missing' ? presenceParam : null
+
   const clearPlatoon = () => {
     const next = new URLSearchParams(searchParams)
     next.delete('platoon')
+    setSearchParams(next, { replace: true })
+    setPage(1)
+  }
+
+  const clearPresence = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('presence')
     setSearchParams(next, { replace: true })
     setPage(1)
   }
@@ -122,6 +133,15 @@ export default function PersonnelRegistry(): JSX.Element {
     if (platoonFilter) {
       rows = rows.filter((p) => getPlatoonCodeForPerson(p) === platoonFilter)
     }
+    if (presenceFilter) {
+      // present = groupName='Так' (duty + combat); missing = усе інше + ОС без статусу.
+      // Дзеркалить логіку Дашборду: total = present + missing.
+      rows = rows.filter((p) => {
+        const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
+        const isPresent = cat === 'duty' || cat === 'combat'
+        return presenceFilter === 'present' ? isPresent : !isPresent
+      })
+    }
     if (catFilter !== 'all') {
       rows = rows.filter((p) => {
         const cat = categorizeStatus(p.currentStatusCode, groupByCode[p.currentStatusCode || ''] ?? null)
@@ -129,7 +149,7 @@ export default function PersonnelRegistry(): JSX.Element {
       })
     }
     return rows
-  }, [data, catFilter, groupByCode, platoonFilter])
+  }, [data, catFilter, groupByCode, platoonFilter, presenceFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -163,7 +183,11 @@ export default function PersonnelRegistry(): JSX.Element {
           </div>
           <h1>Реєстр</h1>
           <div className="sub">
-            {platoonInfo
+            {presenceFilter === 'present'
+              ? `В наявності · присутні станом на ${dayjs().format('DD.MM.YYYY')}`
+              : presenceFilter === 'missing'
+              ? `Відсутні · шпиталь, відпустки, відрядження, СЗЧ тощо · ${dayjs().format('DD.MM.YYYY')}`
+              : platoonInfo
               ? `${platoonInfo.fullName} станом на ${dayjs().format('DD.MM.YYYY')}`
               : `Список особового складу 12 ШР станом на ${dayjs().format('DD.MM.YYYY')}`}
           </div>
@@ -241,6 +265,51 @@ export default function PersonnelRegistry(): JSX.Element {
               type="button"
               onClick={clearPlatoon}
               title="Зняти фільтр взводу"
+              style={{
+                width: 18,
+                height: 18,
+                marginLeft: 2,
+                border: 0,
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--fg-2)',
+                display: 'grid',
+                placeItems: 'center',
+                borderRadius: '50%'
+              }}
+            >
+              <CloseOutlined style={{ fontSize: 10 }} />
+            </button>
+          </div>
+        )}
+
+        {presenceFilter && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 6px 4px 10px',
+              borderRadius: 999,
+              border: `1px solid ${
+                presenceFilter === 'present' ? 'oklch(0.74 0.13 158)' : 'oklch(0.60 0.05 60)'
+              }`,
+              background:
+                presenceFilter === 'present'
+                  ? 'color-mix(in oklab, oklch(0.74 0.13 158) 12%, var(--bg-2))'
+                  : 'color-mix(in oklab, oklch(0.60 0.05 60) 12%, var(--bg-2))',
+              fontSize: 12,
+              color: 'var(--fg-0)',
+              lineHeight: 1.2
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>
+              {presenceFilter === 'present' ? 'В наявності' : 'Відсутні'}
+            </span>
+            <button
+              type="button"
+              onClick={clearPresence}
+              title="Зняти фільтр присутності"
               style={{
                 width: 18,
                 height: 18,

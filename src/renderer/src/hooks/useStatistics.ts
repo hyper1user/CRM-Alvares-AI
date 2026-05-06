@@ -63,7 +63,7 @@ export function useStatisticsSummary() {
   return { data, loading, refetch }
 }
 
-export function useStatisticsByStatus() {
+export function useStatisticsByStatus(dateAt?: string) {
   const [data, setData] = useState<StatusStatItem[]>([])
   const [loading, setLoading] = useState(true)
   const globalSubdivision = useAppStore((s) => s.globalSubdivision)
@@ -71,11 +71,11 @@ export function useStatisticsByStatus() {
   useEffect(() => {
     setLoading(true)
     window.api
-      .statisticsByStatus(globalSubdivision)
+      .statisticsByStatus(globalSubdivision, dateAt)
       .then((result: StatusStatItem[]) => setData(result ?? []))
       .catch(() => setData([]))
       .finally(() => setLoading(false))
-  }, [globalSubdivision])
+  }, [globalSubdivision, dateAt])
 
   return { data, loading }
 }

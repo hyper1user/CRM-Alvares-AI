@@ -2567,39 +2567,78 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  safeHandle(IPC.STATISTICS_BY_STATUS, (_event, subdivision?: string) => {
+  safeHandle(IPC.STATISTICS_BY_STATUS, (_event, subdivision?: string, dateAt?: string) => {
     try {
       const db = getDatabase()
-
-      const conditions = [eq(personnel.status, 'active')]
-      if (subdivision) {
-        conditions.push(eq(personnel.currentSubdivision, subdivision))
-      }
-      const active = db
-        .select({ currentStatusCode: personnel.currentStatusCode })
-        .from(personnel)
-        .where(and(...conditions))
-        .all()
-
       const stRows = db.select().from(statusTypes).all()
       const stMap = new Map(stRows.map((s) => [s.code, s]))
-
       const counts = new Map<string, number>()
-      for (const p of active) {
-        const code = p.currentStatusCode ?? 'UNKNOWN'
-        counts.set(code, (counts.get(code) ?? 0) + 1)
+
+      if (!dateAt) {
+        // Поточний snapshot — як раніше: беремо currentStatusCode у активних
+        const conditions = [eq(personnel.status, 'active')]
+        if (subdivision) conditions.push(eq(personnel.currentSubdivision, subdivision))
+        const active = db
+          .select({ currentStatusCode: personnel.currentStatusCode })
+          .from(personnel)
+          .where(and(...conditions))
+          .all()
+        for (const p of active) {
+          const code = p.currentStatusCode ?? 'UNKNOWN'
+          counts.set(code, (counts.get(code) ?? 0) + 1)
+        }
+      } else {
+        // Snapshot на дату dateAt: для кожної ОС, що існувала і не була виключена
+        // на цю дату, шукаємо останній запис у status_history з dateFrom <= dateAt.
+        // Note: currentSubdivision беремо поточний (approximation) — у БД немає
+        // повної історії підрозділів; для donut по 12 ШР це прийнятно.
+        const presenceConditions = [
+          sql`(${personnel.createdAt} IS NULL OR ${personnel.createdAt} <= ${dateAt})`,
+          sql`(${personnel.excludedAt} IS NULL OR ${personnel.excludedAt} > ${dateAt})`
+        ]
+        if (subdivision) presenceConditions.push(eq(personnel.currentSubdivision, subdivision))
+
+        const candidates = db
+          .select({ id: personnel.id })
+          .from(personnel)
+          .where(and(...presenceConditions))
+          .all()
+
+        // Один prepared-запит, запускаємо в циклі — better-sqlite3 native loop.
+        const lookupStmt = db
+          .select({
+            statusCode: statusHistory.statusCode
+          })
+          .from(statusHistory)
+          .where(
+            and(
+              eq(statusHistory.personnelId, sql.placeholder('pid')),
+              sql`${statusHistory.dateFrom} <= ${dateAt}`
+            )
+          )
+          .orderBy(sql`${statusHistory.dateFrom} DESC`, sql`${statusHistory.id} DESC`)
+          .limit(1)
+          .prepare()
+
+        for (const c of candidates) {
+          const row = lookupStmt.get({ pid: c.id }) as { statusCode: string } | undefined
+          if (!row) continue // ОС існувала, але без status_history до dateAt — не лічимо
+          counts.set(row.statusCode, (counts.get(row.statusCode) ?? 0) + 1)
+        }
       }
 
-      return Array.from(counts.entries()).map(([statusCode, count]) => {
-        const st = stMap.get(statusCode)
-        return {
-          statusCode,
-          statusName: st?.name ?? statusCode,
-          groupName: st?.groupName ?? '',
-          color: st?.colorCode ?? '#999',
-          count
-        }
-      }).sort((a, b) => b.count - a.count)
+      return Array.from(counts.entries())
+        .map(([statusCode, count]) => {
+          const st = stMap.get(statusCode)
+          return {
+            statusCode,
+            statusName: st?.name ?? statusCode,
+            groupName: st?.groupName ?? '',
+            color: st?.colorCode ?? '#999',
+            count
+          }
+        })
+        .sort((a, b) => b.count - a.count)
     } catch (err) {
       console.error('[ipc] STATISTICS_BY_STATUS error:', err)
       return []

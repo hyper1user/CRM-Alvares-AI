@@ -160,7 +160,8 @@ const api = {
 
   // Statistics
   statisticsSummary: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_SUMMARY, subdivision),
-  statisticsByStatus: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS, subdivision),
+  statisticsByStatus: (subdivision?: string, dateAt?: string) =>
+    ipcRenderer.invoke(IPC.STATISTICS_BY_STATUS, subdivision, dateAt),
   statisticsBySubdivision: (subdivision?: string) => ipcRenderer.invoke(IPC.STATISTICS_BY_SUBDIVISION, subdivision),
 
   // Updater
