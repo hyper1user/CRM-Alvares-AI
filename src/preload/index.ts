@@ -52,6 +52,10 @@ const api = {
   // Lookups
   ranksList: () => ipcRenderer.invoke(IPC.RANKS_LIST),
   statusTypesList: () => ipcRenderer.invoke(IPC.STATUS_TYPES_LIST),
+  statusTypeUsage: (code: string) => ipcRenderer.invoke(IPC.STATUS_TYPES_USAGE, code),
+  statusTypeCreate: (input: unknown) => ipcRenderer.invoke(IPC.STATUS_TYPES_CREATE, input),
+  statusTypeUpdate: (input: unknown) => ipcRenderer.invoke(IPC.STATUS_TYPES_UPDATE, input),
+  statusTypeDelete: (id: number) => ipcRenderer.invoke(IPC.STATUS_TYPES_DELETE, id),
   bloodTypesList: () => ipcRenderer.invoke(IPC.BLOOD_TYPES_LIST),
   contractTypesList: () => ipcRenderer.invoke(IPC.CONTRACT_TYPES_LIST),
   educationLevelsList: () => ipcRenderer.invoke(IPC.EDUCATION_LEVELS_LIST),

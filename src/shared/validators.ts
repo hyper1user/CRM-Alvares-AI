@@ -251,3 +251,47 @@ export const leaveRecordCreateSchema = z.object({
 })
 
 export type LeaveRecordCreateInput = z.infer<typeof leaveRecordCreateSchema>
+
+// Status types — фіксований enum доменних груп.
+// Зміна (додавання/перейменування) — тільки через міграцію, бо до цих
+// імен прив'язані категоризація на Дашборді (categorize у Dashboard.tsx),
+// фільтри Реєстру, Канбан, ДГВ-табель, onSupply-семантика.
+export const STATUS_GROUP_NAMES = [
+  'Так',
+  'Лікування',
+  'Відпустка',
+  'Відрядження',
+  'СЗЧ',
+  'Загиблі',
+  'Зниклі безвісти',
+  'Полон',
+  'Ні'
+] as const
+export type StatusGroupName = (typeof STATUS_GROUP_NAMES)[number]
+
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const STATUS_CODE = /^[A-ZА-ЯҐЄІЇ0-9]{1,10}$/u
+
+export const statusTypeCreateSchema = z.object({
+  code: z
+    .string()
+    .min(1, 'Код обовʼязковий')
+    .max(10, 'Не більше 10 символів')
+    .regex(STATUS_CODE, 'Лише ВЕЛИКІ літери та цифри'),
+  name: z.string().min(1, 'Назва обовʼязкова').max(100),
+  groupName: z.enum(STATUS_GROUP_NAMES, {
+    required_error: 'Оберіть групу'
+  }),
+  onSupply: z.boolean().default(false),
+  rewardAmount: z.number().int().nonnegative().nullable().optional(),
+  sortOrder: z.number().int().nonnegative().default(99),
+  colorCode: z.string().regex(HEX_COLOR, 'Формат: #RRGGBB або #RGB').default('#999999')
+})
+
+export type StatusTypeCreateInput = z.infer<typeof statusTypeCreateSchema>
+
+export const statusTypeUpdateSchema = statusTypeCreateSchema.partial().extend({
+  id: z.number().int().positive()
+})
+
+export type StatusTypeUpdateInput = z.infer<typeof statusTypeUpdateSchema>

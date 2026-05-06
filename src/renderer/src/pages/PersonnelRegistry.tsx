@@ -27,7 +27,7 @@ const COMBAT_CODES = new Set(['РВ', 'РЗ', 'РШ'])
 
 const CAT_LABELS: Record<Cat, string> = {
   all: 'Усі',
-  duty: 'У строю',
+  duty: 'ППД',
   combat: 'БЗ',
   medical: 'Мед',
   leave: 'Відп',

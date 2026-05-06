@@ -29,7 +29,7 @@ import {
   dgvMonthMeta
 } from '../db/schema'
 import { eq, and, like, or, asc, desc, sql, gte, lte } from 'drizzle-orm'
-import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema } from '@shared/validators'
+import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema, statusTypeCreateSchema, statusTypeUpdateSchema } from '@shared/validators'
 import { parseEjoosFile } from '../import/ejoos-parser'
 import { parseDataFile } from '../import/data-parser'
 import { importEjoos, importData, importImpulse } from '../import/import-service'
@@ -738,7 +738,152 @@ export function registerIpcHandlers(): void {
 
   safeHandle(IPC.STATUS_TYPES_LIST, () => {
     const db = getDatabase()
-    return db.select().from(statusTypes).all()
+    return db.select().from(statusTypes).orderBy(asc(statusTypes.sortOrder), asc(statusTypes.id)).all()
+  })
+
+  // Підрахунок використання — для попередження перед видаленням і блокування
+  // зміни code (бо code = foreign-text-key у personnel/status_history/attendance/dgv_marks).
+  safeHandle(IPC.STATUS_TYPES_USAGE, (_event, code: string) => {
+    const db = getDatabase()
+    const personnelCount = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(personnel)
+      .where(eq(personnel.currentStatusCode, code))
+      .get()
+    const historyCount = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(statusHistory)
+      .where(eq(statusHistory.statusCode, code))
+      .get()
+    const attendanceCount = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(attendance)
+      .where(eq(attendance.statusCode, code))
+      .get()
+    return {
+      personnel: personnelCount?.c ?? 0,
+      statusHistory: historyCount?.c ?? 0,
+      attendance: attendanceCount?.c ?? 0
+    }
+  })
+
+  safeHandle(IPC.STATUS_TYPES_CREATE, (_event, input) => {
+    const parsed = statusTypeCreateSchema.safeParse(input)
+    if (!parsed.success) throw new Error(parsed.error.errors.map((e) => e.message).join('; '))
+    const db = getDatabase()
+    const codeUpper = parsed.data.code.toUpperCase()
+    const existing = db.select().from(statusTypes).where(eq(statusTypes.code, codeUpper)).get()
+    if (existing) throw new Error(`Статус з кодом "${codeUpper}" вже існує`)
+
+    const insertedRows = db
+      .insert(statusTypes)
+      .values({
+        code: codeUpper,
+        name: parsed.data.name,
+        groupName: parsed.data.groupName,
+        onSupply: parsed.data.onSupply,
+        rewardAmount: parsed.data.rewardAmount ?? null,
+        sortOrder: parsed.data.sortOrder,
+        colorCode: parsed.data.colorCode
+      })
+      .returning()
+      .all()
+    return insertedRows[0]
+  })
+
+  safeHandle(IPC.STATUS_TYPES_UPDATE, (_event, input) => {
+    const parsed = statusTypeUpdateSchema.safeParse(input)
+    if (!parsed.success) throw new Error(parsed.error.errors.map((e) => e.message).join('; '))
+    const db = getDatabase()
+    const { id, ...patch } = parsed.data
+
+    const current = db.select().from(statusTypes).where(eq(statusTypes.id, id)).get()
+    if (!current) throw new Error('Статус не знайдено')
+
+    // Зміна code — небезпечно: code є foreign-text-key. Дозволяємо тільки
+    // якщо немає жодного існуючого посилання.
+    if (patch.code && patch.code.toUpperCase() !== current.code) {
+      const newCode = patch.code.toUpperCase()
+      const collision = db.select().from(statusTypes).where(eq(statusTypes.code, newCode)).get()
+      if (collision && collision.id !== id) {
+        throw new Error(`Код "${newCode}" вже зайнято`)
+      }
+      const usage = {
+        personnel: db
+          .select({ c: sql<number>`COUNT(*)` })
+          .from(personnel)
+          .where(eq(personnel.currentStatusCode, current.code))
+          .get()?.c ?? 0,
+        history: db
+          .select({ c: sql<number>`COUNT(*)` })
+          .from(statusHistory)
+          .where(eq(statusHistory.statusCode, current.code))
+          .get()?.c ?? 0,
+        attendance: db
+          .select({ c: sql<number>`COUNT(*)` })
+          .from(attendance)
+          .where(eq(attendance.statusCode, current.code))
+          .get()?.c ?? 0
+      }
+      const total = usage.personnel + usage.history + usage.attendance
+      if (total > 0) {
+        throw new Error(
+          `Не можна змінити код "${current.code}" — використовується (ОС: ${usage.personnel}, історія: ${usage.history}, табель: ${usage.attendance}). Створіть новий статус і вручну переведіть особовий склад.`
+        )
+      }
+      patch.code = newCode
+    }
+
+    const updateValues: Record<string, unknown> = {}
+    if (patch.code !== undefined) updateValues.code = patch.code
+    if (patch.name !== undefined) updateValues.name = patch.name
+    if (patch.groupName !== undefined) updateValues.groupName = patch.groupName
+    if (patch.onSupply !== undefined) updateValues.onSupply = patch.onSupply
+    if (patch.rewardAmount !== undefined) updateValues.rewardAmount = patch.rewardAmount
+    if (patch.sortOrder !== undefined) updateValues.sortOrder = patch.sortOrder
+    if (patch.colorCode !== undefined) updateValues.colorCode = patch.colorCode
+    if (Object.keys(updateValues).length === 0) return current
+
+    const updated = db
+      .update(statusTypes)
+      .set(updateValues)
+      .where(eq(statusTypes.id, id))
+      .returning()
+      .all()
+    return updated[0]
+  })
+
+  safeHandle(IPC.STATUS_TYPES_DELETE, (_event, id: number) => {
+    const db = getDatabase()
+    const current = db.select().from(statusTypes).where(eq(statusTypes.id, id)).get()
+    if (!current) throw new Error('Статус не знайдено')
+
+    const usage = {
+      personnel: db
+        .select({ c: sql<number>`COUNT(*)` })
+        .from(personnel)
+        .where(eq(personnel.currentStatusCode, current.code))
+        .get()?.c ?? 0,
+      history: db
+        .select({ c: sql<number>`COUNT(*)` })
+        .from(statusHistory)
+        .where(eq(statusHistory.statusCode, current.code))
+        .get()?.c ?? 0,
+      attendance: db
+        .select({ c: sql<number>`COUNT(*)` })
+        .from(attendance)
+        .where(eq(attendance.statusCode, current.code))
+        .get()?.c ?? 0
+    }
+    const total = usage.personnel + usage.history + usage.attendance
+    if (total > 0) {
+      throw new Error(
+        `Статус "${current.code}" використовується: ОС ${usage.personnel}, історія ${usage.history}, табель ${usage.attendance}. Спочатку перевести записи на інший статус.`
+      )
+    }
+
+    db.delete(statusTypes).where(eq(statusTypes.id, id)).run()
+    return { success: true, code: current.code }
   })
 
   safeHandle(IPC.SUBDIVISIONS_LIST, () => {

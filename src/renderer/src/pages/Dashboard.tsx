@@ -33,7 +33,7 @@ const CAT_COLORS: Record<Cat, string> = {
 }
 
 const CAT_LABELS: Record<Cat, string> = {
-  duty: 'У строю',
+  duty: 'На ППД',
   combat: 'Бойове завдання',
   medical: 'Медичні',
   leave: 'Відпустки',

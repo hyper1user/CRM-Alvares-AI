@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Typography, Button, Input, Space, Alert, Divider, App, Progress, Tag } from 'antd'
 import {
   SettingOutlined,
@@ -7,7 +8,9 @@ import {
   SyncOutlined,
   CloudDownloadOutlined,
   WarningOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  TagsOutlined,
+  RightOutlined
 } from '@ant-design/icons'
 import UnitAboutCard from '../components/layout/UnitAboutCard'
 
@@ -23,6 +26,7 @@ type UpdaterStatus =
   | { state: 'error'; message: string }
 
 export default function Settings(): JSX.Element {
+  const navigate = useNavigate()
   const { message } = App.useApp()
   const [docsRoot, setDocsRoot] = useState<string>('')
   const [saved, setSaved] = useState(false)
@@ -138,6 +142,28 @@ export default function Settings(): JSX.Element {
             Оновлення перевіряються автоматично при запуску додатку (через 5 секунд).
           </Text>
         </Space>
+      </Card>
+
+      {/* Lookups */}
+      <Card
+        title={
+          <Space>
+            <TagsOutlined />
+            <span>Довідники</span>
+          </Space>
+        }
+      >
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          Кастомізація значень, що використовуються в усіх модулях.
+        </Paragraph>
+        <Button
+          icon={<TagsOutlined />}
+          onClick={() => navigate('/settings/statuses')}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          Статуси особового складу
+          <RightOutlined style={{ fontSize: 11 }} />
+        </Button>
       </Card>
 
       {/* Docs folder */}

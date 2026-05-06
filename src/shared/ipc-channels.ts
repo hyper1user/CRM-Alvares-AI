@@ -85,6 +85,10 @@ export const IPC = {
   // Lookups (довідники)
   RANKS_LIST: 'ranks:list',
   STATUS_TYPES_LIST: 'status-types:list',
+  STATUS_TYPES_CREATE: 'status-types:create',
+  STATUS_TYPES_UPDATE: 'status-types:update',
+  STATUS_TYPES_DELETE: 'status-types:delete',
+  STATUS_TYPES_USAGE: 'status-types:usage',
   BLOOD_TYPES_LIST: 'blood-types:list',
   CONTRACT_TYPES_LIST: 'contract-types:list',
   EDUCATION_LEVELS_LIST: 'education-levels:list',
