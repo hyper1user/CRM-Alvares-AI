@@ -634,6 +634,12 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // ППД/АДП/БЗВП → '100' були помилкові). Кожен UPDATE з guard'ом на
   // конкретне старе значення — не перетирає правки юзера.
   fixDgvMappingV142(sqliteDb)
+
+  // v1.4.3: уточнення після фідбеку юзера. ППД/АДП/БЗВП у v1.4.2 я
+  // лишив null, але вони мають мапитись у секцію 7. ЗБ навпаки — мав
+  // 'ЗБ' у v1.4.0/v1.4.2 (секція 6), а правильно null (зник безвісти —
+  // звітність обривається).
+  fixDgvMappingV143(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -1015,18 +1021,18 @@ function addCategoryToDocumentTemplates(sqliteDb: InstanceType<typeof Database>)
 
 // v1.4.0: ALTER status_types ADD COLUMN dgv_code TEXT + initial mapping.
 // v1.4.2: mapping приведено до ЕЖООС (аркуш Налаштування → тСтатуси).
+// v1.4.3: ППД/АДП/БЗВП → секція 7 (не брав участі), ЗБ → null
+//   (боєць «обривається» в день зникнення — секцій 6/7 не отримує).
 // Логіка:
-//   * РВ/РОП → '100' (бойова виплата 100К — Район виконання та Ротний
-//     опорний пункт, обидва на ЛБЗ)
-//   * РЗ → '30' (Район зосередження, виплата 30К)
-//   * РШ → null (Район штаб, ЕЖООС каже 50К, але для 12 ШР завжди
-//     порожньо — додавання категорії pay_50 не виправдане)
-//   * ППД/АДП/БЗВП → null (НЕ 100К як я раніше помилково заклав —
-//     це службові статуси без автоматичної виплати; командир вирішує
-//     персонально через окремий механізм у майбутніх версіях)
-//   * ВП/ВПХ/ВПС/ВПП/ШП/ВД → відповідні DGV-коди (секція 7 рапорту,
-//     «не брав участі»)
-//   * СЗЧ/АР/200/ЗБ/ПОЛОН → самі собі (секція 6 «не виплачувати»)
+//   * РВ/РОП → '100' (бойова виплата 100К)
+//   * РЗ → '30' (виплата 30К)
+//   * РШ → null (50К поза скоупом 12 ШР)
+//   * ППД → 'н/п', АДП → 'адп', БЗВП → 'н/п' (секція 7 — присутні в
+//     частині, але не на бойових позиціях, тож «не брав участі»)
+//   * ВП/ВПХ/ВПС/ВПП/ШП/ВД → відповідні DGV-коди (секція 7)
+//   * СЗЧ/АР/200/ПОЛОН → самі собі (секція 6 «не виплачувати»)
+//   * ЗБ → null (зник безвісти — день зникнення обриває всі секції,
+//     боєць лишається у п.1/п.7 тільки за дні до зникнення)
 // Юзер може скоригувати через `StatusTypesAdmin` після релізу.
 function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void {
   const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
@@ -1043,7 +1049,9 @@ function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void 
     ['РОП', '100'],
     ['РЗ', '30'],
     // РШ → null (50К поза скоупом 12 ШР)
-    // ППД/АДП/БЗВП → null (без авто-виплати)
+    ['ППД', 'н/п'],
+    ['АДП', 'адп'],
+    ['БЗВП', 'н/п'],
     ['ВП', 'вп'],
     ['ВПХ', 'ВПХ'],
     ['ВПС', 'ВПС'],
@@ -1053,7 +1061,7 @@ function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void 
     ['СЗЧ', 'СЗЧ'],
     ['АР', 'АР'],
     ['200', '200'],
-    ['ЗБ', 'ЗБ'],
+    // ЗБ → null (зник безвісти — обриває звітність)
     ['ПОЛОН', 'ПОЛОН']
   ]
   let totalUpdated = 0
@@ -1101,6 +1109,39 @@ function fixDgvMappingV142(sqliteDb: InstanceType<typeof Database>): void {
   }
   if (totalFixed > 0) {
     console.log(`[db] fixDgvMappingV142: виправлено dgv_code для ${totalFixed} статусів`)
+  }
+}
+
+// v1.4.3: ще один hotfix mapping'а — ППД/АДП/БЗВП після v1.4.2 лишилися
+// null, а мають бути секцією 7 ('н/п'/'адп'/'н/п'). ЗБ після v1.4.0 мав
+// 'ЗБ' (помилково в секцію 6) — стає null (звітність обривається).
+// Guard'и на конкретні «попередні» значення — не зачіпає юзерські правки.
+function fixDgvMappingV143(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) return
+
+  // null → '...' fixes для ППД/АДП/БЗВП (вони були null після v1.4.2)
+  const nullFixes: Array<[string, string]> = [
+    ['ППД', 'н/п'],
+    ['АДП', 'адп'],
+    ['БЗВП', 'н/п']
+  ]
+  let total = 0
+  for (const [code, dgvCode] of nullFixes) {
+    const r = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code IS NULL`)
+      .run(dgvCode, code)
+    total += r.changes
+  }
+
+  // 'ЗБ' → null (видаляємо помилковий маппинг із секції 6)
+  const zbFix = sqliteDb
+    .prepare(`UPDATE status_types SET dgv_code = NULL WHERE code = 'ЗБ' AND dgv_code = 'ЗБ'`)
+    .run()
+  total += zbFix.changes
+
+  if (total > 0) {
+    console.log(`[db] fixDgvMappingV143: уточнено dgv_code для ${total} статусів`)
   }
 }
 
