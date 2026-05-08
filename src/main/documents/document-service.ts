@@ -13,7 +13,8 @@ import type {
   GeneratedDocument,
   GenerateDocumentRequest,
   GeneratedDocumentListItem,
-  DocumentListFilters
+  DocumentListFilters,
+  TemplateCategory
 } from '@shared/types/document'
 
 // Paths
@@ -34,86 +35,21 @@ function getDocumentsDir(): string {
 interface TemplateDefinition {
   name: string
   templateType: string
+  category: TemplateCategory
   description: string
   fileName: string
   lines: string[] // fallback content if .docx file not in resources/
 }
 
+// v1.4.0: 3 архівні шаблони (Наказ по ОС, Відпускний квиток, Довідка про
+// поранення) видалені з seed для нових БД. Існуючі БД зберігають їх як
+// category='retired' через addCategoryToDocumentTemplates() — UI не показує.
 const DEFAULT_TEMPLATES: TemplateDefinition[] = [
-  // ==================== GENERATED (fallback) ====================
-  {
-    name: 'Наказ по ОС',
-    templateType: 'order',
-    description: 'Наказ командира по особовому складу',
-    fileName: 'order-personnel.docx',
-    lines: [
-      'НАКАЗ',
-      'Командира {unitName} ({unitDesignation})',
-      'по особовому складу',
-      '',
-      '№ {orderNumber} від {orderDate}',
-      '',
-      '{subject}',
-      '',
-      '{body}',
-      '',
-      'Командир {unitDesignation}',
-      '{commanderRank} {commanderName}'
-    ]
-  },
-  {
-    name: 'Відпускний квиток',
-    templateType: 'leave_ticket',
-    description: 'Відпускний квиток військовослужбовця',
-    fileName: 'leave-ticket.docx',
-    lines: [
-      'ВІДПУСКНИЙ КВИТОК № {ticketNumber}',
-      '',
-      'Виданий: {rankName} {fullName}',
-      'ІПН: {ipn}',
-      'Посада: {positionTitle}',
-      'Підрозділ: {subdivisionName}',
-      '',
-      'Тип відпустки: {leaveType}',
-      'З: {startDate}   По: {endDate}',
-      'Днів дороги: {travelDays}',
-      'Пункт призначення: {destination}',
-      '',
-      'Наказ № {orderNumber} від {orderDate}',
-      '',
-      'Командир {unitDesignation}',
-      '{commanderRank} {commanderName}'
-    ]
-  },
-  {
-    name: 'Довідка про поранення',
-    templateType: 'injury_certificate',
-    description: 'Довідка про обставини поранення (травми, контузії)',
-    fileName: 'injury-certificate.docx',
-    lines: [
-      'ДОВІДКА',
-      'про обставини поранення (травми, контузії)',
-      '',
-      '{rankName} {fullName}',
-      'ІПН: {ipn}',
-      '',
-      'Вид поранення: {injuryType}',
-      'Дата: {dateOfInjury}',
-      'Місце: {location}',
-      'Обставини: {circumstances}',
-      '',
-      'Форма 100 № {forma100Number} від {forma100Date}',
-      'Медичний заклад: {hospitalName}',
-      '',
-      'Командир {unitDesignation}',
-      '{commanderRank} {commanderName}'
-    ]
-  },
-
-  // ==================== ДОПОВІДІ (reports) ====================
+  // ==================== ПОДІЇ (event) ====================
   {
     name: 'Доповідь 1×300',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про одиночне поранення (300)',
     fileName: 'report-300-single.docx',
     lines: []
@@ -121,6 +57,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь 1×БТ',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про бойову травму (одиночна)',
     fileName: 'report-bt-single.docx',
     lines: []
@@ -128,6 +65,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь 1×ЗБ',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про загибель (одиночна)',
     fileName: 'report-combat-loss-single.docx',
     lines: []
@@ -135,6 +73,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь 200',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про безповоротну втрату (200)',
     fileName: 'report-200.docx',
     lines: []
@@ -142,6 +81,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь 2+×300',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про множинні поранення (300)',
     fileName: 'report-300-multi.docx',
     lines: []
@@ -149,6 +89,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь повернення (рез. бат.)',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про повернення з СЗЧ до резервного батальйону',
     fileName: 'report-return-reserve.docx',
     lines: []
@@ -156,66 +97,15 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Доповідь повернення (підрозділ)',
     templateType: 'report',
+    category: 'event',
     description: 'Доповідь про повернення з СЗЧ до підрозділу',
     fileName: 'report-return-unit.docx',
     lines: []
   },
-
-  // ==================== ЗВІЛЬНЕННЯ (discharge) ====================
-  {
-    name: 'Звільнення — відпустка УБД',
-    templateType: 'certificate',
-    description: 'Звільнення: відпустка учасника бойових дій',
-    fileName: 'discharge-leave-ubd.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — здача посади',
-    templateType: 'certificate',
-    description: 'Звільнення: акт здачі-прийому посади',
-    fileName: 'discharge-handover.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — речове майно',
-    templateType: 'certificate',
-    description: 'Звільнення: виплата за неотримане речове майно',
-    fileName: 'discharge-clothing.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — направлення на облік',
-    templateType: 'certificate',
-    description: 'Звільнення: направлення на військовий облік',
-    fileName: 'discharge-registration.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — невикористана відпустка',
-    templateType: 'certificate',
-    description: 'Звільнення: компенсація невикористаної відпустки',
-    fileName: 'discharge-unused-leave.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — оздоровчі',
-    templateType: 'certificate',
-    description: 'Звільнення: оздоровчі виплати',
-    fileName: 'discharge-health.docx',
-    lines: []
-  },
-  {
-    name: 'Звільнення — соціально-побутові',
-    templateType: 'certificate',
-    description: 'Звільнення: соціально-побутові виплати',
-    fileName: 'discharge-social.docx',
-    lines: []
-  },
-
-  // ==================== РАПОРТИ (raports) ====================
   {
     name: 'Рапорт 1×300',
     templateType: 'report',
+    category: 'event',
     description: 'Рапорт про одиночне поранення (300)',
     fileName: 'raport-300-single.docx',
     lines: []
@@ -223,6 +113,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Рапорт 1×ЗБ',
     templateType: 'report',
+    category: 'event',
     description: 'Рапорт про загибель',
     fileName: 'raport-combat-loss.docx',
     lines: []
@@ -230,6 +121,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Рапорт 200',
     templateType: 'report',
+    category: 'event',
     description: 'Рапорт про безповоротну втрату (200)',
     fileName: 'raport-200.docx',
     lines: []
@@ -237,13 +129,17 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Рапорт 2+×БТ',
     templateType: 'report',
+    category: 'event',
     description: 'Рапорт про множинні бойові травми',
     fileName: 'raport-bt-multi.docx',
     lines: []
   },
+
+  // ==================== РАПОРТИ (raport) ====================
   {
     name: 'Рапорт відпустка (за сімейними)',
     templateType: 'report',
+    category: 'raport',
     description: 'Рапорт на відпустку за сімейними обставинами',
     fileName: 'raport-leave-family.docx',
     lines: []
@@ -251,6 +147,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Рапорт відпустка (основна)',
     templateType: 'report',
+    category: 'raport',
     description: 'Рапорт на основну щорічну відпустку',
     fileName: 'raport-leave-main.docx',
     lines: []
@@ -258,8 +155,80 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
   {
     name: 'Рапорт ВПХ',
     templateType: 'report',
+    category: 'raport',
     description: 'Рапорт на відпустку по хворобі',
     fileName: 'raport-leave-medical.docx',
+    lines: []
+  },
+
+  // ==================== ЗВІЛЬНЕННЯ/ПЕРЕВОД (discharge) ====================
+  {
+    name: 'Звільнення — відпустка УБД',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: відпустка учасника бойових дій',
+    fileName: 'discharge-leave-ubd.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — здача посади',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: акт здачі-прийому посади',
+    fileName: 'discharge-handover.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — речове майно',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: виплата за неотримане речове майно',
+    fileName: 'discharge-clothing.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — направлення на облік',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: направлення на військовий облік',
+    fileName: 'discharge-registration.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — невикористана відпустка',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: компенсація невикористаної відпустки',
+    fileName: 'discharge-unused-leave.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — оздоровчі',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: оздоровчі виплати',
+    fileName: 'discharge-health.docx',
+    lines: []
+  },
+  {
+    name: 'Звільнення — соціально-побутові',
+    templateType: 'certificate',
+    category: 'discharge',
+    description: 'Звільнення: соціально-побутові виплати',
+    fileName: 'discharge-social.docx',
+    lines: []
+  },
+
+  // ==================== ГРОШОВЕ ЗАБЕЗПЕЧЕННЯ (monetary) ====================
+  // v1.4.0: спеціальний шаблон з templateType='xlsx_dgv' — генератор не
+  // використовує docxtemplater, а викликає dgv-report-builder напряму.
+  // UI Генератора має special-case: вибір місяця замість TemplateFieldsForm.
+  {
+    name: 'ДГВ-рапорт',
+    templateType: 'xlsx_dgv',
+    category: 'monetary',
+    description: 'Рапорт ДГВ на місяць (4 секції: 100К/30К/п.6/п.7) у форматі .xlsx',
+    fileName: 'dgv-report-special.placeholder',
     lines: []
   }
 ]
@@ -282,20 +251,25 @@ export function seedDefaultTemplates(): void {
   const templatesDir = getTemplatesDir()
 
   for (const def of toSeed) {
-    const filePath = join(templatesDir, def.fileName)
+    let filePath: string
 
-    // Check if source template exists in resources/
-    const resourcePath = getResourceTemplatePath(def.fileName)
-    if (resourcePath && existsSync(resourcePath)) {
-      copyFileSync(resourcePath, filePath)
-    } else if (def.lines.length > 0) {
-      // Generate minimal docx programmatically (only for templates with content)
-      const buffer = createMinimalDocx(def.lines)
-      writeFileSync(filePath, buffer)
+    if (def.templateType === 'xlsx_dgv') {
+      // v1.4.0: спеціальний шаблон без .docx — генерація через
+      // dgv-report-builder.ts. filePath — синтетичний маркер, ніколи
+      // не читається (Generator UI має special-case для xlsx_dgv).
+      filePath = 'special:xlsx_dgv'
     } else {
-      // No resource file and no fallback lines — skip this template
-      console.warn(`[documents] Skipping template "${def.name}": no source file found`)
-      continue
+      filePath = join(templatesDir, def.fileName)
+      const resourcePath = getResourceTemplatePath(def.fileName)
+      if (resourcePath && existsSync(resourcePath)) {
+        copyFileSync(resourcePath, filePath)
+      } else if (def.lines.length > 0) {
+        const buffer = createMinimalDocx(def.lines)
+        writeFileSync(filePath, buffer)
+      } else {
+        console.warn(`[documents] Skipping template "${def.name}": no source file found`)
+        continue
+      }
     }
 
     db.insert(documentTemplates)
@@ -304,7 +278,8 @@ export function seedDefaultTemplates(): void {
         templateType: def.templateType,
         filePath,
         description: def.description,
-        isDefault: true
+        isDefault: true,
+        category: def.category
       })
       .run()
   }

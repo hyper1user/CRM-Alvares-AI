@@ -284,6 +284,9 @@ export const statusTypeCreateSchema = z.object({
   }),
   onSupply: z.boolean().default(false),
   isCombat: z.boolean().default(false),
+  // v1.4.0: відповідник у DGV-семантиці. null/undefined = статус не
+  // використовується для виплат у ДГВ-рапорті.
+  dgvCode: z.string().min(1).max(10).nullable().optional(),
   rewardAmount: z.number().int().nonnegative().nullable().optional(),
   sortOrder: z.number().int().nonnegative().default(99),
   colorCode: z.string().regex(HEX_COLOR, 'Формат: #RRGGBB або #RGB').default('#999999')

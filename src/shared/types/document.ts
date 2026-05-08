@@ -100,6 +100,9 @@ export interface CreateLeaveRecordRequest {
 
 // ==================== DOCUMENT TEMPLATES ====================
 
+// v1.4.0: 4 видимі категорії + 'retired' для прихованих архівних шаблонів.
+export type TemplateCategory = 'event' | 'raport' | 'discharge' | 'monetary' | 'retired'
+
 export interface DocumentTemplate {
   id: number
   name: string
@@ -107,6 +110,7 @@ export interface DocumentTemplate {
   filePath: string
   description: string | null
   isDefault: boolean
+  category: TemplateCategory | null
 }
 
 export interface GeneratedDocument {

@@ -7,6 +7,11 @@ export interface StatusTypeEntry {
   // v1.2.1: бойове розташування — категоризація Дашборду/Реєстру
   // ставить такі статуси в "Бойове завдання", не в "На ППД".
   isCombat?: boolean
+  // v1.4.0: відповідник у DGV-семантиці (з DGV_CODES). null = не
+  // використовується у виплатах. Mapping робиться через
+  // addDgvCodeToStatusTypes() при першому запуску, далі юзер може
+  // змінити через CRUD адмінки статусів.
+  dgvCode?: string | null
   rewardAmount: number | null
   sortOrder: number
   colorCode: string

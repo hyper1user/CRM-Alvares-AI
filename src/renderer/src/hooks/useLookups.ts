@@ -15,6 +15,9 @@ interface StatusType {
   groupName: string
   onSupply: boolean | null
   isCombat?: boolean | null
+  // v1.4.0: відповідник у DGV-семантиці (з DGV_CODES) для генерації
+  // ДГВ-рапорту з attendance замість окремого dgv_marks.
+  dgvCode?: string | null
   sortOrder: number
   colorCode: string | null
 }

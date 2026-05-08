@@ -85,6 +85,7 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       group_name TEXT NOT NULL,
       on_supply INTEGER DEFAULT 1,
       is_combat INTEGER DEFAULT 0,
+      dgv_code TEXT,
       reward_amount INTEGER,
       sort_order INTEGER NOT NULL,
       color_code TEXT
@@ -478,7 +479,8 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
       template_type TEXT NOT NULL,
       file_path TEXT NOT NULL,
       description TEXT,
-      is_default INTEGER DEFAULT 0
+      is_default INTEGER DEFAULT 0,
+      category TEXT
     );
 
     CREATE TABLE IF NOT EXISTS generated_documents (
@@ -616,6 +618,18 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // Решта виправлень (ВПХ/вд/вп/Бух/нар) — це тільки опис у TS-коді,
   // самі коди в БД не змінюються.
   renameDgvCodeZagTo200(sqliteDb)
+
+  // v1.4.0: категоризація шаблонів Генератора у 4 групи (event/raport/
+  // discharge/monetary). 3 шаблони (Наказ по ОС, Відпускний квиток,
+  // Довідка про поранення) переводяться у 'retired' — UI Генератора їх
+  // не показує, але записи в БД лишаються (на випадок повернення).
+  addCategoryToDocumentTemplates(sqliteDb)
+
+  // v1.4.0: dgv_code колонка у status_types — мапинг status_code → dgv_code
+  // для генерації ДГВ-рапорту з attendance (замість окремого dgv_marks).
+  // Initial mapping для 13 існуючих кодів з ЕЖООС. Юзер може правити
+  // через CRUD адмінки статусів (`StatusTypesAdmin`).
+  addDgvCodeToStatusTypes(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -938,6 +952,104 @@ function renameDgvCodeZagTo200(sqliteDb: InstanceType<typeof Database>): void {
   const result = stmt.run()
   if (result.changes > 0) {
     console.log(`[db] renameDgvCodeZagTo200: оновлено ${result.changes} записів dgv_marks (заг → 200)`)
+  }
+}
+
+// v1.4.0: додає колонку category у document_templates і робить backfill
+// існуючих шаблонів за іменем. 3 «архівні» шаблони (Наказ по ОС,
+// Відпускний квиток, Довідка про поранення) → 'retired' — UI ховає їх,
+// але FK з generated_documents.template_id лишається валідним.
+function addCategoryToDocumentTemplates(sqliteDb: InstanceType<typeof Database>): void {
+  const tbl = sqliteDb
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='document_templates'`)
+    .get() as { name: string } | undefined
+  if (!tbl) return
+
+  const cols = sqliteDb.prepare('PRAGMA table_info(document_templates)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'category')) {
+    sqliteDb.exec('ALTER TABLE document_templates ADD COLUMN category TEXT')
+    console.log('[db] addCategoryToDocumentTemplates: додано колонку category')
+  }
+
+  // Backfill — idempotent. Map: category → list of template names.
+  // Якщо нова робоча БД (вже мала category з createTables і свіжим seed),
+  // UPDATE нічого не зробить (рядки ще не існують або category вже стоїть).
+  const mapping: Array<[string, string[]]> = [
+    ['event', [
+      'Доповідь 1×300', 'Доповідь 1×БТ', 'Доповідь 1×ЗБ', 'Доповідь 200',
+      'Доповідь 2+×300', 'Доповідь повернення (рез. бат.)',
+      'Доповідь повернення (підрозділ)',
+      'Рапорт 1×300', 'Рапорт 1×ЗБ', 'Рапорт 200', 'Рапорт 2+×БТ'
+    ]],
+    ['raport', [
+      'Рапорт відпустка (за сімейними)',
+      'Рапорт відпустка (основна)',
+      'Рапорт ВПХ'
+    ]],
+    ['discharge', [
+      'Звільнення — відпустка УБД', 'Звільнення — здача посади',
+      'Звільнення — речове майно', 'Звільнення — направлення на облік',
+      'Звільнення — невикористана відпустка', 'Звільнення — оздоровчі',
+      'Звільнення — соціально-побутові'
+    ]],
+    ['retired', ['Наказ по ОС', 'Відпускний квиток', 'Довідка про поранення']]
+  ]
+
+  let totalUpdated = 0
+  for (const [cat, names] of mapping) {
+    const placeholders = names.map(() => '?').join(',')
+    const stmt = sqliteDb.prepare(
+      `UPDATE document_templates SET category = ? WHERE name IN (${placeholders}) AND (category IS NULL OR category != ?)`
+    )
+    const result = stmt.run(cat, ...names, cat)
+    totalUpdated += result.changes
+  }
+  if (totalUpdated > 0) {
+    console.log(`[db] addCategoryToDocumentTemplates: backfill category для ${totalUpdated} шаблонів`)
+  }
+}
+
+// v1.4.0: ALTER status_types ADD COLUMN dgv_code TEXT + initial mapping.
+// Mapping будується від «бойових» кодів РВ/РЗ/РШ/РОП → 'роп' (узгоджено
+// з is_combat=true з v1.2.1), бо РОП = район оперативного призначення
+// (на позиції, 100К виплата). ППД/АДП/БЗВП → '100' — командирське рішення
+// нарахувати 100К без РОП. ВПХ/ВПС/ВПП/СЗЧ/ЗБ/200 — самі собі тотожні
+// (коди status_types збігаються з DGV_CODES). НП/ПОЛОН/ВБВ/ЗВ/ДВП — null
+// (нейтральні службові статуси без виплат). Юзер може скоригувати через
+// `StatusTypesAdmin` після релізу.
+function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) {
+    sqliteDb.exec('ALTER TABLE status_types ADD COLUMN dgv_code TEXT')
+    console.log('[db] addDgvCodeToStatusTypes: додано колонку dgv_code')
+  }
+
+  // Backfill — idempotent. WHERE dgv_code IS NULL гарантує, що ми не
+  // перезапишемо налаштування юзера після першого запуску.
+  const mapping: Array<[string, string]> = [
+    ['РВ', 'роп'],     // різновид районів виконання — на позиції
+    ['РЗ', 'роп'],
+    ['РШ', 'роп'],
+    ['РОП', 'роп'],    // прямий синонім, додано юзером у v1.2.1
+    ['ППД', '100'],    // пункт постійної дислокації, командирське рішення
+    ['АДП', '100'],
+    ['БЗВП', '100'],
+    ['ВПХ', 'ВПХ'],
+    ['ВПС', 'ВПС'],
+    ['ВПП', 'ВПП'],
+    ['СЗЧ', 'СЗЧ'],
+    ['ЗБ', 'ЗБ'],
+    ['200', '200']
+  ]
+  let totalUpdated = 0
+  for (const [statusCode, dgvCode] of mapping) {
+    const result = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code IS NULL`)
+      .run(dgvCode, statusCode)
+    totalUpdated += result.changes
+  }
+  if (totalUpdated > 0) {
+    console.log(`[db] addDgvCodeToStatusTypes: backfill dgv_code для ${totalUpdated} статусів`)
   }
 }
 

@@ -22,6 +22,11 @@ export const statusTypes = sqliteTable('status_types', {
   // Прив'язане до status_type, не до коду — щоб юзер міг створювати
   // нові бойові коди (РОП, СОП…) без зміни коду додатку.
   isCombat: integer('is_combat', { mode: 'boolean' }).default(false),
+  // v1.4.0: відповідник у DGV-семантиці (з DGV_CODES). Використовується
+  // dgv-report-builder для маппингу status_type.code → dgv_code, щоб
+  // згенерувати ДГВ-рапорт із attendance замість окремого dgv_marks.
+  // null = не використовується у виплатах (нейтральні службові статуси).
+  dgvCode: text('dgv_code'),
   rewardAmount: integer('reward_amount'),
   sortOrder: integer('sort_order').notNull(),
   colorCode: text('color_code')
@@ -496,7 +501,9 @@ export const documentTemplates = sqliteTable('document_templates', {
   templateType: text('template_type').notNull(),
   filePath: text('file_path').notNull(),
   description: text('description'),
-  isDefault: integer('is_default', { mode: 'boolean' }).default(false)
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false),
+  // v1.4.0: 'event' | 'raport' | 'discharge' | 'monetary' | 'retired' | null
+  category: text('category')
 })
 
 export const generatedDocuments = sqliteTable('generated_documents', {
