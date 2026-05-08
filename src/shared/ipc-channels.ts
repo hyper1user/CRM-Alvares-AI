@@ -53,6 +53,8 @@ export const IPC = {
   TEMPLATES_LIST: 'templates:list',
   TEMPLATES_GET_TAGS: 'templates:get-tags',
   DOCUMENTS_GENERATE: 'documents:generate',
+  // v1.4.0: окремий канал для xlsx_dgv (асинхронний, з save-dialog'ом)
+  DOCUMENTS_GENERATE_XLSX_DGV: 'documents:generate-xlsx-dgv',
   DOCUMENTS_LIST: 'documents:list',
   DOCUMENTS_OPEN: 'documents:open',
   DOCUMENTS_DELETE: 'documents:delete',

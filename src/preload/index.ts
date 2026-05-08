@@ -130,6 +130,13 @@ const api = {
     personnelIds?: number[]
     fields: Record<string, string>
   }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE, data),
+  // v1.4.0: спеціальний канал для xlsx_dgv (templateType='xlsx_dgv').
+  // Очікує fields={year,month}; повертає GeneratedDocument | {canceled:true}.
+  documentsGenerateXlsxDgv: (data: {
+    templateId: number
+    title: string
+    fields: Record<string, string>
+  }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_XLSX_DGV, data),
   documentsList: (filters?: { documentType?: string; search?: string }) =>
     ipcRenderer.invoke(IPC.DOCUMENTS_LIST, filters),
   documentsOpen: (filePath: string) => ipcRenderer.invoke(IPC.DOCUMENTS_OPEN, filePath),

@@ -40,6 +40,7 @@ import {
   listTemplates,
   getTemplateTagsById,
   generateDocument,
+  generateXlsxDgvDocument,
   listGeneratedDocuments,
   openDocument,
   deleteGeneratedDocument
@@ -2089,6 +2090,20 @@ export function registerIpcHandlers(): void {
       return generateDocument(request)
     } catch (err) {
       console.error('[ipc] DOCUMENTS_GENERATE error:', err)
+      return { error: true, message: String(err) }
+    }
+  })
+
+  // v1.4.0: спеціальний async-канал для шаблону templateType='xlsx_dgv'.
+  // Викликає buildDgvReport (через generateXlsxDgvDocument), який сам
+  // показує save-dialog і повертає `{canceled:true}` коли юзер закрив.
+  // Frontend Generator UI має детектити templateType і викликати саме
+  // цей канал замість DOCUMENTS_GENERATE.
+  safeHandle(IPC.DOCUMENTS_GENERATE_XLSX_DGV, async (_event, request) => {
+    try {
+      return await generateXlsxDgvDocument(request)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_GENERATE_XLSX_DGV error:', err)
       return { error: true, message: String(err) }
     }
   })

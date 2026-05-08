@@ -434,6 +434,95 @@ export function generateDocument(request: GenerateDocumentRequest): GeneratedDoc
   }
 }
 
+/**
+ * v1.4.0: Special-case generator для шаблону templateType='xlsx_dgv'.
+ *
+ * Окрема функція (а не гілка в generateDocument), бо:
+ *   1. xlsx-pipeline асинхронний (buildDgvReport показує save-dialog +
+ *      ExcelJS writeFile повертає Promise) — не хочеться змінювати
+ *      sync-сигнатуру generateDocument для більшості шаблонів.
+ *   2. Параметри тут інші — потрібні year/month, а не звичайний tag-map.
+ *      У request.fields очікуємо { year: '2026', month: '5' }.
+ *   3. Повертає `canceled: true` коли юзер закрив save-dialog — щоб
+ *      Generator UI не показав фейкового success.
+ *
+ * Записує в generated_documents та audit_log тільки після успішного
+ * збереження файлу (тобто скасований діалог не лишає мертвих рядків).
+ */
+export async function generateXlsxDgvDocument(
+  request: GenerateDocumentRequest
+): Promise<GeneratedDocument | { canceled: true }> {
+  const db = getDatabase()
+
+  const tmpl = db
+    .select()
+    .from(documentTemplates)
+    .where(eq(documentTemplates.id, request.templateId))
+    .get() as DocumentTemplate | undefined
+
+  if (!tmpl) throw new Error(`Template not found: ${request.templateId}`)
+  if (tmpl.templateType !== 'xlsx_dgv') {
+    throw new Error(`Expected xlsx_dgv template, got: ${tmpl.templateType}`)
+  }
+
+  const yearStr = request.fields?.year ?? ''
+  const monthStr = request.fields?.month ?? ''
+  const year = parseInt(yearStr, 10)
+  const month = parseInt(monthStr, 10)
+  if (!year || !month || month < 1 || month > 12) {
+    throw new Error(`Invalid year/month: ${yearStr}/${monthStr}`)
+  }
+
+  // Lazy require — щоб уникнути circular import з dgv-report-builder
+  // (він теж лазить у db/schema через imports). У синхронній частині
+  // module-scope require не критичний, але лишаю lazy для консистентності.
+  const { buildDgvReport } = require('../export/dgv-report-builder')
+  const result = await buildDgvReport(year, month)
+
+  if (!result.success || !result.filePath) {
+    return { canceled: true }
+  }
+
+  const dbResult = db
+    .insert(generatedDocuments)
+    .values({
+      templateId: tmpl.id,
+      documentType: tmpl.templateType,
+      title: request.title,
+      personnelIds: null,
+      filePath: result.filePath
+    })
+    .run()
+
+  const docId = Number(dbResult.lastInsertRowid)
+
+  db.insert(auditLog)
+    .values({
+      tableName: 'generated_documents',
+      recordId: docId,
+      action: 'generate',
+      newValues: JSON.stringify({
+        templateId: tmpl.id,
+        templateType: tmpl.templateType,
+        title: request.title,
+        filePath: result.filePath,
+        year,
+        month
+      })
+    })
+    .run()
+
+  return {
+    id: docId,
+    templateId: tmpl.id,
+    documentType: tmpl.templateType,
+    title: request.title,
+    personnelIds: null,
+    filePath: result.filePath,
+    generatedAt: new Date().toISOString()
+  }
+}
+
 // ==================== ARCHIVE ====================
 
 /**

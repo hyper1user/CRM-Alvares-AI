@@ -523,6 +523,11 @@ export const settings = sqliteTable('settings', {
 
 // ==================== DGV (Грошове забезпечення) ====================
 
+// @deprecated v1.4.0: ДГВ-табель тепер виводиться з attendance ×
+// status_types.dgv_code (не з окремої таблиці). Цей table лишається
+// в схемі заради існуючих БД — DgvPage UI на момент v1.4.0 видалена,
+// тож запис у dgv_marks припиняється. Запланований DROP TABLE у v1.5.0
+// після підтвердженого live-запуску. Не використовувати в новому коді.
 export const dgvMarks = sqliteTable(
   'dgv_marks',
   {

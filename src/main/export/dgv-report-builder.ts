@@ -5,8 +5,11 @@
 import ExcelJS from 'exceljs'
 import { dialog } from 'electron'
 import { getDatabase } from '../db/connection'
-import { personnel, ranks, positions, dgvMarks, dgvMonthMeta } from '../db/schema'
-import { eq, and, asc, sql } from 'drizzle-orm'
+// v1.4.0: dgvMarks більше не використовується (джерело — attendance ×
+// status_types.dgv_code). dgvMonthMeta лишається — це метадані рапорту
+// (підстави виплат, покарання), які не виводяться з attendance.
+import { personnel, ranks, positions, attendance, statusTypes, dgvMonthMeta } from '../db/schema'
+import { eq, and, asc, isNotNull, sql } from 'drizzle-orm'
 import { DGV_CODE_MAP, PAY_100_CODES } from '@shared/enums/dgv-codes'
 import type { DgvPeriod } from '@shared/types/dgv'
 
@@ -180,20 +183,34 @@ export async function buildDgvReport(
     .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
     .all()
 
-  // Fetch marks
+  // v1.4.0: маркери ДГВ-табелю більше НЕ читаються з окремої таблиці
+  // dgv_marks — джерелом стала attendance, а маппинг status_code →
+  // dgv_code робить status_types.dgv_code (initial mapping робиться у
+  // addDgvCodeToStatusTypes() при першому запуску, юзер коригує через
+  // StatusTypesAdmin). Фільтр isNotNull(dgv_code) автоматично відсікає
+  // нейтральні службові статуси (НП/ПОЛОН/ВБВ/ЗВ/ДВП), які не мають
+  // ДГВ-семантики — без нього вони б потрапили в attendance, але не
+  // показалися б у жодній секції рапорту.
   const firstDay = `${year}-${mm}-01`
   const lastDay = `${year}-${mm}-${new Date(year, month, 0).getDate()}`
   const marksRows = db
-    .select()
-    .from(dgvMarks)
+    .select({
+      personnelId: attendance.personnelId,
+      date: attendance.date,
+      dgvCode: statusTypes.dgvCode
+    })
+    .from(attendance)
+    .innerJoin(statusTypes, eq(attendance.statusCode, statusTypes.code))
     .where(and(
-      sql`${dgvMarks.date} >= ${firstDay}`,
-      sql`${dgvMarks.date} <= ${lastDay}`
+      sql`${attendance.date} >= ${firstDay}`,
+      sql`${attendance.date} <= ${lastDay}`,
+      isNotNull(statusTypes.dgvCode)
     ))
     .all()
 
   const marksMap = new Map<number, Record<string, string>>()
   for (const m of marksRows) {
+    if (!m.dgvCode) continue
     if (!marksMap.has(m.personnelId)) marksMap.set(m.personnelId, {})
     marksMap.get(m.personnelId)![m.date] = m.dgvCode
   }
