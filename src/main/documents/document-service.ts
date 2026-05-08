@@ -8,6 +8,7 @@ import { getDatabase } from '../db/connection'
 import { documentTemplates, generatedDocuments, settings, personnel, auditLog } from '../db/schema'
 import { eq, desc } from 'drizzle-orm'
 import { generateDocx, getTemplateTags, createMinimalDocx } from './docx-engine'
+import { buildDgvReport } from '../export/dgv-report-builder'
 import type {
   DocumentTemplate,
   GeneratedDocument,
@@ -473,10 +474,10 @@ export async function generateXlsxDgvDocument(
     throw new Error(`Invalid year/month: ${yearStr}/${monthStr}`)
   }
 
-  // Lazy require — щоб уникнути circular import з dgv-report-builder
-  // (він теж лазить у db/schema через imports). У синхронній частині
-  // module-scope require не критичний, але лишаю lazy для консистентності.
-  const { buildDgvReport } = require('../export/dgv-report-builder')
+  // v1.4.0 hotfix: top-level import замість lazy require. У Electron
+  // main bundle'иться в один index.js — runtime require зі відносним
+  // шляхом не резолвиться. Циркулярного імпорту тут немає
+  // (dgv-report-builder не імпортує document-service).
   const result = await buildDgvReport(year, month)
 
   if (!result.success || !result.filePath) {

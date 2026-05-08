@@ -45,6 +45,7 @@ import {
   openDocument,
   deleteGeneratedDocument
 } from '../documents/document-service'
+import { buildDgvReport } from '../export/dgv-report-builder'
 
 export function registerIpcHandlers(): void {
   // App version
@@ -3547,9 +3548,10 @@ export function registerIpcHandlers(): void {
   )
 
   // Export DGV report as .xlsx
+  // v1.4.0 hotfix: top-level import замість runtime require — Electron
+  // bundler не резолвить відносні require у скомпільованому index.js.
   safeHandle(IPC.DGV_EXPORT_REPORT, async (_event, year: number, month: number) => {
     try {
-      const { buildDgvReport } = require('../export/dgv-report-builder')
       return await buildDgvReport(year, month)
     } catch (err) {
       console.error('[ipc] DGV_EXPORT_REPORT error:', err)
