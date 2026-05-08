@@ -42,6 +42,7 @@ import {
   generateDocument,
   generateXlsxDgvDocument,
   generateConfirmationDocument,
+  generateDispositionDocument,
   listGeneratedDocuments,
   openDocument,
   deleteGeneratedDocument
@@ -2117,6 +2118,17 @@ export function registerIpcHandlers(): void {
       return await generateConfirmationDocument(request)
     } catch (err) {
       console.error('[ipc] DOCUMENTS_GENERATE_DOCX_CONFIRMATION error:', err)
+      return { error: true, message: String(err) }
+    }
+  })
+
+  // v1.6.0: канал для шаблону templateType='docx_disposition'.
+  // Бойове розпорядження з auto-assign 15 ролей + lookup КСП/н.п.
+  safeHandle(IPC.DOCUMENTS_GENERATE_DOCX_DISPOSITION, async (_event, request) => {
+    try {
+      return await generateDispositionDocument(request)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_GENERATE_DOCX_DISPOSITION error:', err)
       return { error: true, message: String(err) }
     }
   })

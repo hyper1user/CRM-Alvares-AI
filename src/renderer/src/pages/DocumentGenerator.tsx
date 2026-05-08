@@ -65,14 +65,14 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   injury_certificate: <MedicineBoxOutlined style={{ fontSize: 32, color: '#fa541c' }} />,
   report: <AlertOutlined style={{ fontSize: 32, color: '#faad14' }} />,
   certificate: <SafetyCertificateOutlined style={{ fontSize: 32, color: '#722ed1' }} />,
-  // v1.4.0/v1.5.0: special pipelines (xlsx + docx month-picker).
+  // v1.4.0/v1.5.0/v1.6.0: special pipelines.
   xlsx_dgv: <DollarOutlined style={{ fontSize: 32, color: '#13c2c2' }} />,
-  docx_confirmation: <FileDoneOutlined style={{ fontSize: 32, color: '#1890ff' }} />
+  docx_confirmation: <FileDoneOutlined style={{ fontSize: 32, color: '#1890ff' }} />,
+  docx_disposition: <AlertOutlined style={{ fontSize: 32, color: '#fa541c' }} />
 }
 
-// v1.5.0: типи шаблонів, що використовують спеціальний UI з DatePicker
-// (місяць) замість TemplateFieldsForm. Обидва приймають fields={year,month}
-// і повертають {canceled:true}/GeneratedDocument через окремі IPC-канали.
+// v1.5.0: типи шаблонів, що використовують month-picker UI замість
+// TemplateFieldsForm. Обидва приймають fields={year,month}.
 const MONTH_PICKER_TYPES = ['xlsx_dgv', 'docx_confirmation'] as const
 
 export default function DocumentGenerator(): JSX.Element {
@@ -94,6 +94,9 @@ export default function DocumentGenerator(): JSX.Element {
   const isDocxConfirmation = selectedTemplate?.templateType === 'docx_confirmation'
   // v1.5.0: спільна гілка UI для обох month-picker-шаблонів.
   const isMonthPicker = !!selectedTemplate && (MONTH_PICKER_TYPES as readonly string[]).includes(selectedTemplate.templateType)
+  // v1.6.0: окрема гілка для disposition (день виконання + 2 текстові поля).
+  const isDocxDisposition = selectedTemplate?.templateType === 'docx_disposition'
+  const isSpecialPipeline = isMonthPicker || isDocxDisposition
 
   // Templates per active category, excluding 'retired' globally.
   const visibleTemplates = useMemo(
@@ -101,11 +104,11 @@ export default function DocumentGenerator(): JSX.Element {
     [templates, activeCategory]
   )
 
-  // Load tags when DOCX template selected. Skip for month-picker types
-  // (xlsx_dgv не має тегів взагалі; docx_confirmation має, але вони
-  // підставляються автоматично з attendance — юзер їх не заповнює).
+  // Load tags when DOCX template selected. Skip for special-pipeline
+  // шаблонів (xlsx_dgv/docx_confirmation/docx_disposition — мають свої
+  // UI-форми замість стандартного TemplateFieldsForm).
   useEffect(() => {
-    if (!selectedTemplate || isMonthPicker) {
+    if (!selectedTemplate || isSpecialPipeline) {
       setTags([])
       return
     }
@@ -115,7 +118,7 @@ export default function DocumentGenerator(): JSX.Element {
       .then((t) => setTags(t ?? []))
       .catch(() => setTags([]))
       .finally(() => setTagsLoading(false))
-  }, [selectedTemplate, isMonthPicker])
+  }, [selectedTemplate, isSpecialPipeline])
 
   const handleSelectTemplate = (tmpl: DocumentTemplate): void => {
     setSelectedTemplate(tmpl)
@@ -130,6 +133,34 @@ export default function DocumentGenerator(): JSX.Element {
     if (!selectedTemplate) return
     setGenerating(true)
     try {
+      // v1.6.0: гілка для disposition (день + номер БР батальйону).
+      if (isDocxDisposition) {
+        const values = await form.validateFields()
+        const fields = {
+          executionDate: period.format('YYYY-MM-DD'),
+          brBatNumber: String(values.brBatNumber ?? ''),
+          brBatDate: String(values.brBatDate ?? '')
+        }
+        const data = {
+          templateId: selectedTemplate.id,
+          title: values.title || `Бойове розпорядження ${period.format('DD.MM.YYYY')}`,
+          fields
+        }
+        const response = await window.api.documentsGenerateDisposition(data)
+        if (response?.canceled) {
+          message.info('Генерацію скасовано')
+          return
+        }
+        if (response?.error) {
+          message.error(response.message ?? 'Помилка генерації')
+          return
+        }
+        setResult(response)
+        setCurrent(3)
+        message.success('Бойове розпорядження згенеровано!')
+        return
+      }
+
       // v1.4.0/v1.5.0: розгалуження за templateType. Для month-picker
       // шаблонів — окремий IPC-канал з save-dialog'ом і year/month у
       // fields. Спільний контракт response (canceled/error/result).
@@ -212,7 +243,7 @@ export default function DocumentGenerator(): JSX.Element {
 
   const steps = [
     { title: 'Шаблон' },
-    { title: isMonthPicker ? 'Період' : 'Дані' },
+    { title: isSpecialPipeline ? (isDocxDisposition ? 'День і БР' : 'Період') : 'Дані' },
     { title: 'Перевірка' },
     { title: 'Готово' }
   ]
@@ -278,10 +309,66 @@ export default function DocumentGenerator(): JSX.Element {
         </Card>
       )}
 
-      {/* Step 1: Fill Data (DOCX) or Pick Period (month-picker types) */}
+      {/* Step 1: Fill Data / Pick Period / Pick Day-and-BR */}
       {current === 1 && selectedTemplate && (
-        <Card title={`${isMonthPicker ? 'Період для' : 'Заповнення:'} ${selectedTemplate.name}`}>
-          {isMonthPicker ? (
+        <Card title={`${isSpecialPipeline ? (isDocxDisposition ? 'Параметри' : 'Період для') : 'Заповнення:'} ${selectedTemplate.name}`}>
+          {isDocxDisposition ? (
+            // v1.6.0: спецUI для Розпорядження. День виконання + 2
+            // текстові поля (БР батальйону). Auto-assign ролей за посадою,
+            // КСП/н.п. lookup за датою — все на бекенді.
+            <Form form={form} layout="vertical" style={{ maxWidth: 480 }}>
+              <Form.Item
+                name="title"
+                label="Назва документа"
+                initialValue={`Бойове розпорядження ${period.format('DD.MM.YYYY')}`}
+              >
+                <Input placeholder="Назва для архіву" />
+              </Form.Item>
+
+              <Form.Item label="День виконання БР">
+                <DatePicker
+                  value={period}
+                  onChange={(v) => v && setPeriod(v)}
+                  locale={locale}
+                  format="DD.MM.YYYY"
+                  style={{ width: '100%' }}
+                  suffixIcon={<CalendarOutlined />}
+                  allowClear={false}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="brBatNumber"
+                label="Номер БР командира 4 ШБ"
+                rules={[{ required: true, message: 'Введіть номер' }]}
+              >
+                <Input placeholder="78" />
+              </Form.Item>
+
+              <Form.Item
+                name="brBatDate"
+                label="Дата БР командира 4 ШБ"
+                rules={[{ required: true, message: 'Формат DD.MM.YYYY' }]}
+              >
+                <Input placeholder="04.05.2026" />
+              </Form.Item>
+
+              <div
+                style={{
+                  padding: 12,
+                  background: 'var(--bg-2)',
+                  border: '1px solid var(--line-1)',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  color: 'var(--fg-3)'
+                }}
+              >
+                Номер БР роти й дата (<code>{period.subtract(1, 'day').format('DD.MM.YYYY')}</code>) генеруються автоматично за формулою <code>№doy від (D-1)</code>.
+                ОС у 15 ролях розкладається auto-assign'ом за посадою (заступник→ZKR, медик→MEDIC тощо).
+                КСП роти й населений пункт — lookup за датою з довідника локацій. ROP-блок MVP <b>прихований</b>; вставиш вручну в Word після генерації (v1.6.1 додасть селектор ROP1..ROP4).
+              </div>
+            </Form>
+          ) : isMonthPicker ? (
             // v1.4.0/v1.5.0: спільний UI для xlsx_dgv та docx_confirmation —
             // тільки місяць. Дані ОС, періоди — автоматично з attendance +
             // status_types.dgv_code. Інформативний блок різниться за типом.
@@ -380,12 +467,23 @@ export default function DocumentGenerator(): JSX.Element {
           <div style={{ marginBottom: 16 }}>
             <Text strong>Назва:</Text>{' '}
             {form.getFieldValue('title') ||
-              (isMonthPicker
-                ? `${isXlsxDgv ? 'ДГВ-рапорт' : 'Підтвердження'} ${period.format('MMMM YYYY')}`
-                : selectedTemplate.name)}
+              (isDocxDisposition
+                ? `Бойове розпорядження ${period.format('DD.MM.YYYY')}`
+                : isMonthPicker
+                  ? `${isXlsxDgv ? 'ДГВ-рапорт' : 'Підтвердження'} ${period.format('MMMM YYYY')}`
+                  : selectedTemplate.name)}
           </div>
 
-          {isMonthPicker ? (
+          {isDocxDisposition ? (
+            <div style={{ marginBottom: 16 }}>
+              <Text strong>День виконання:</Text> {period.format('DD.MM.YYYY')}
+              <br />
+              <Text strong>БР батальйону:</Text> №{form.getFieldValue('brBatNumber')} від {form.getFieldValue('brBatDate')}
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>
+                Натиснувши «Згенерувати», з'явиться діалог збереження. ROP-блок прихований у MVP — додай вручну в Word'і.
+              </div>
+            </div>
+          ) : isMonthPicker ? (
             <div style={{ marginBottom: 16 }}>
               <Text strong>Період:</Text> {period.format('MMMM YYYY')}
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>

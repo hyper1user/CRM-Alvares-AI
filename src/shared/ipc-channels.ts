@@ -58,6 +58,8 @@ export const IPC = {
   // v1.5.0: окремий канал для docx_confirmation (Word з 2 секціями
   // через docxtemplater + автоматичні БР для рядових)
   DOCUMENTS_GENERATE_DOCX_CONFIRMATION: 'documents:generate-docx-confirmation',
+  // v1.6.0: окремий канал для docx_disposition (Бойове розпорядження)
+  DOCUMENTS_GENERATE_DOCX_DISPOSITION: 'documents:generate-docx-disposition',
   DOCUMENTS_LIST: 'documents:list',
   DOCUMENTS_OPEN: 'documents:open',
   DOCUMENTS_DELETE: 'documents:delete',

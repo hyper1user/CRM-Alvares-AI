@@ -1,0 +1,247 @@
+/**
+ * Build «Бойове розпорядження» (Disposition) report as .docx.
+ *
+ * v1.6.0 MVP: TS-port з Alvares-AI/core/br_roles.py:generate_br_word +
+ * dodatky_parser.py. Базується на шаблоні `resources/templates/
+ * disposition-template.docx` (трансформованому з Variant_A).
+ *
+ * MVP-обмеження (розширення в v1.6.1):
+ *   * Одна дата виконання (період → масова генерація потім).
+ *   * Auto-assign ролей за посадою (через `autoAssignRole()` з
+ *     br-roles.ts) — юзерського override через UI поки немає.
+ *   * ROP-блок (умовний `{{#hasRop}}...{{/hasRop}}`) — за замовчуванням
+ *     прихований; юзер додає вручну в Word'і. Alvares-AI має селектор
+ *     ROP1/ROP2/.../ROP_FIRST — додамо у v1.6.1.
+ *
+ * Що автоматично:
+ *   * Номер БР роти — `getBrNumber(executionDate)` (doy формула з v1.5.0).
+ *   * Дата БР роти — `executionDate - 1 day`.
+ *   * КСП роти + населений пункт — lookup у `resources/br/locations.md`
+ *     (останній період з датою ≤ executionDate).
+ *   * 15 ролей заповнені з ОС що мають active+Г-3+attendance(100|роп).
+ *   * ACK_LIST — список усіх задіяних ОС з рангами.
+ */
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { dialog, app } from 'electron'
+import { join } from 'path'
+import PizZip from 'pizzip'
+import Docxtemplater from 'docxtemplater'
+import { getDatabase } from '../db/connection'
+import { personnel, ranks, positions, attendance, statusTypes } from '../db/schema'
+import { eq, and, asc, sql } from 'drizzle-orm'
+import { BR_ROLES, autoAssignRole } from '@shared/enums/br-roles'
+import { getBrNumber } from './br-calculator'
+
+interface SoldierForBr {
+  fullName: string
+  rankName: string | null
+  positionTitle: string | null
+  positionIdx: string | null
+}
+
+interface LocationEntry {
+  date: Date
+  settlement: string
+  ksp: string
+}
+
+/**
+ * Парсер `resources/br/locations.md` — TS-port dodatky_parser.py.
+ *
+ * Формат рядка: `|***DD.MM.YYYY***|населений\_пункт|КСП\_РОТИ|`.
+ * Зворотні слеші — markdown-escape (\_), прибираємо.
+ */
+function parseLocations(filepath: string): LocationEntry[] {
+  if (!existsSync(filepath)) return []
+  const content = readFileSync(filepath, 'utf-8')
+  const entries: LocationEntry[] = []
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim()
+    if (!line.startsWith('|')) continue
+    if (line.includes('Період') || line.replace(/[|\-]/g, '').trim() === '') continue
+
+    const parts = line.split('|').map((p) => p.trim()).filter(Boolean)
+    if (parts.length < 3) continue
+
+    const dateStr = parts[0].replace(/\*+/g, '').replace(/\\/g, '').trim()
+    const m = dateStr.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+    if (!m) continue
+
+    const [, dd, mm, yyyy] = m
+    entries.push({
+      date: new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)),
+      settlement: parts[1].replace(/\\/g, '').trim(),
+      ksp: parts[2].replace(/\\/g, '').trim()
+    })
+  }
+  entries.sort((a, b) => a.date.getTime() - b.date.getTime())
+  return entries
+}
+
+/**
+ * Останній період з датою ≤ executionDate.
+ * Якщо нема — повертає '—'/'—' (як у Alvares-AI).
+ */
+function getLocationForDate(filepath: string, executionDate: Date): { settlement: string; ksp: string } {
+  const entries = parseLocations(filepath)
+  let result: LocationEntry | null = null
+  const target = executionDate.getTime()
+  for (const entry of entries) {
+    if (entry.date.getTime() <= target) {
+      result = entry
+    } else {
+      break
+    }
+  }
+  return result
+    ? { settlement: result.settlement, ksp: result.ksp }
+    : { settlement: '—', ksp: '—' }
+}
+
+/**
+ * Конвертує «Прізвище Ім'я По-батькові» → «звання ПРІЗВИЩЕ Ім'я По-батькові»
+ * (формат для тексту в Розпорядженні — той самий що в Alvares-AI/
+ * br_updater.py:pib_to_document_format).
+ */
+function pibToDocumentFormat(fullName: string, rank: string | null): string {
+  const parts = fullName.trim().split(/\s+/)
+  let formatted: string
+  if (parts.length < 2) {
+    formatted = fullName.toUpperCase()
+  } else {
+    formatted = `${parts[0].toUpperCase()} ${parts.slice(1).join(' ')}`
+  }
+  return rank?.trim() ? `${rank.trim()} ${formatted}` : formatted
+}
+
+function resolveResourcePath(relPath: string): string | null {
+  const candidates = [
+    join(process.resourcesPath ?? '', relPath),
+    join(app.getAppPath(), 'resources', relPath)
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+export async function buildDispositionReport(
+  executionDate: Date,
+  brBatNumber: string,
+  brBatDate: string,
+  templatePath: string
+): Promise<{ success: boolean; filePath: string; error?: string }> {
+  const db = getDatabase()
+  const isoDate = `${executionDate.getFullYear()}-${String(executionDate.getMonth() + 1).padStart(2, '0')}-${String(executionDate.getDate()).padStart(2, '0')}`
+
+  // 1. Беремо ОС з attendance × status_types на executionDate з кодами 100|роп
+  // (бойова присутність). Це той самий набір, що йде у п.1 Підтвердження
+  // за цей день.
+  const rows = db
+    .select({
+      personnelId: personnel.id,
+      fullName: personnel.fullName,
+      rankName: ranks.name,
+      positionTitle: positions.title,
+      positionIdx: personnel.currentPositionIdx,
+      dgvCode: statusTypes.dgvCode
+    })
+    .from(attendance)
+    .innerJoin(personnel, eq(attendance.personnelId, personnel.id))
+    .innerJoin(statusTypes, eq(attendance.statusCode, statusTypes.code))
+    .leftJoin(ranks, eq(personnel.rankId, ranks.id))
+    .leftJoin(positions, eq(personnel.currentPositionIdx, positions.positionIndex))
+    .where(and(
+      eq(attendance.date, isoDate),
+      eq(personnel.status, 'active'),
+      eq(personnel.currentSubdivision, 'Г-3'),
+      sql`${statusTypes.dgvCode} IN ('100', 'роп')`
+    ))
+    .orderBy(asc(personnel.currentPositionIdx))
+    .all()
+
+  // 2. Групуємо за роллю (auto-assign за посадою — MVP).
+  // Бійці без ролі (autoAssignRole повернув null) — у «Резервні групи».
+  const byRole = new Map<string, SoldierForBr[]>()
+  for (const role of BR_ROLES) {
+    byRole.set(role.name, [])
+  }
+  for (const r of rows) {
+    const soldier: SoldierForBr = {
+      fullName: r.fullName,
+      rankName: r.rankName,
+      positionTitle: r.positionTitle,
+      positionIdx: r.positionIdx
+    }
+    const roleName = autoAssignRole(r.positionTitle ?? '') ?? 'Резервні групи'
+    byRole.get(roleName)!.push(soldier)
+  }
+
+  // 3. Формуємо текст для кожного {{ROLE_*}} плейсхолдера.
+  // Кілька бійців — через перенос рядка (linebreaks: true у docxtemplater).
+  const roleTexts: Record<string, string> = {}
+  for (const role of BR_ROLES) {
+    const soldiers = byRole.get(role.name) ?? []
+    roleTexts[role.placeholderTag] = soldiers
+      .map((s) => pibToDocumentFormat(s.fullName, s.rankName))
+      .join('\n') || '—'
+  }
+
+  // 4. Lookup локації для дати.
+  const locationsPath = resolveResourcePath('br/locations.md') ?? ''
+  const { settlement, ksp } = getLocationForDate(locationsPath, executionDate)
+
+  // 5. ACK_LIST — повний список усіх бійців із розпорядження.
+  const ackList = rows
+    .map((r) => pibToDocumentFormat(r.fullName, r.rankName))
+    .join('\n')
+
+  // 6. Формула БР роти.
+  const dispositionFull = getBrNumber(executionDate) // "№91 від 31.03.2026"
+  const dispositionMatch = dispositionFull.match(/^№(\d+) від (.+)$/)
+  const dispositionNumber = dispositionMatch ? dispositionMatch[1] : ''
+  const dispositionDate = dispositionMatch ? dispositionMatch[2] : ''
+
+  // 7. Render. Шаблон використовує custom delimiters {{...}} (jinja-style),
+  // бо так зроблено в оригіналі Alvares-AI; transform-disposition-template.cjs
+  // лише замінив <<...>> на {{...}} і {{IF_ROP}} на {{#hasRop}}.
+  const buf = readFileSync(templatePath)
+  const zip = new PizZip(buf)
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: { start: '{{', end: '}}' },
+    nullGetter: () => ''
+  })
+
+  const renderData: Record<string, string | boolean> = {
+    dispositionNumber,
+    dispositionDate,
+    executionDate: `${String(executionDate.getDate()).padStart(2, '0')}.${String(executionDate.getMonth() + 1).padStart(2, '0')}.${executionDate.getFullYear()}`,
+    'бр': brBatNumber,
+    'дата_бр': brBatDate,
+    'КСП_РОТИ': ksp,
+    'населений_пункт': settlement,
+    hasRop: false, // MVP: без ROP-блоку. v1.6.1 — UI селектор.
+    ROP_FIRST: '',
+    ROP: '',
+    ACK_LIST: ackList,
+    ...roleTexts
+  }
+
+  doc.render(renderData)
+  const out = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
+
+  // 8. Save dialog.
+  const fileLabel = `БР_№${dispositionNumber}_${dispositionDate.replace(/\./g, '-')}`
+  const result = await dialog.showSaveDialog({
+    title: 'Зберегти Бойове розпорядження',
+    defaultPath: `${fileLabel}.docx`,
+    filters: [{ name: 'Word', extensions: ['docx'] }]
+  })
+  if (result.canceled || !result.filePath) {
+    return { success: false, filePath: '' }
+  }
+  writeFileSync(result.filePath, out)
+  return { success: true, filePath: result.filePath }
+}

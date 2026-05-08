@@ -10,6 +10,7 @@ import { eq, desc } from 'drizzle-orm'
 import { generateDocx, getTemplateTags, createMinimalDocx } from './docx-engine'
 import { buildDgvReport } from '../export/dgv-report-builder'
 import { buildConfirmationReport } from '../export/confirmation-builder'
+import { buildDispositionReport } from '../export/disposition-builder'
 import type {
   DocumentTemplate,
   GeneratedDocument,
@@ -244,6 +245,17 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
     category: 'monetary',
     description: 'Підтвердження участі у бойових діях за місяць (п.1=100К/РОП + п.2=30К) у форматі .docx',
     fileName: 'confirmation-template.docx',
+    lines: []
+  },
+  // v1.6.0: Бойове розпорядження. Спецкейс UI — DateRangePicker (start
+  // = end як 1 день у MVP), 2 текстові поля для номера/дати БР батальйону.
+  // Auto-assign 15 ролей за посадою; lookup КСП/н.п. з resources/br/locations.md.
+  {
+    name: 'Бойове розпорядження',
+    templateType: 'docx_disposition',
+    category: 'monetary',
+    description: 'Бойове розпорядження командира 12 ШР на день виконання у форматі .docx',
+    fileName: 'disposition-template.docx',
     lines: []
   }
 ]
@@ -608,6 +620,92 @@ export async function generateConfirmationDocument(
         filePath: result.filePath,
         year,
         month
+      })
+    })
+    .run()
+
+  return {
+    id: docId,
+    templateId: tmpl.id,
+    documentType: tmpl.templateType,
+    title: request.title,
+    personnelIds: null,
+    filePath: result.filePath,
+    generatedAt: new Date().toISOString()
+  }
+}
+
+/**
+ * v1.6.0: Special-case generator для шаблону templateType='docx_disposition'.
+ *
+ * Очікує request.fields = {
+ *   executionDate: '2026-05-05'  (ISO дата виконання БР),
+ *   brBatNumber: '78'             (номер БР командира 4 ШБ),
+ *   brBatDate: '04.05.2026'       (дата БР командира 4 ШБ)
+ * }
+ *
+ * Auto-assign 15 ролей за посадою + lookup КСП/н.п. за датою.
+ * MVP: без ROP-блоку (юзер додає вручну в Word). UI селектора ROP — v1.6.1.
+ */
+export async function generateDispositionDocument(
+  request: GenerateDocumentRequest
+): Promise<GeneratedDocument | { canceled: true }> {
+  const db = getDatabase()
+
+  const tmpl = db
+    .select()
+    .from(documentTemplates)
+    .where(eq(documentTemplates.id, request.templateId))
+    .get() as DocumentTemplate | undefined
+
+  if (!tmpl) throw new Error(`Template not found: ${request.templateId}`)
+  if (tmpl.templateType !== 'docx_disposition') {
+    throw new Error(`Expected docx_disposition template, got: ${tmpl.templateType}`)
+  }
+  if (!existsSync(tmpl.filePath)) {
+    throw new Error(`Template file not found: ${tmpl.filePath}`)
+  }
+
+  const isoDate = request.fields?.executionDate ?? ''
+  const brBatNumber = request.fields?.brBatNumber ?? ''
+  const brBatDate = request.fields?.brBatDate ?? ''
+
+  const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) {
+    throw new Error(`Invalid executionDate (expected YYYY-MM-DD): ${isoDate}`)
+  }
+  const executionDate = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))
+
+  const result = await buildDispositionReport(executionDate, brBatNumber, brBatDate, tmpl.filePath)
+  if (!result.success || !result.filePath) {
+    return { canceled: true }
+  }
+
+  const dbResult = db
+    .insert(generatedDocuments)
+    .values({
+      templateId: tmpl.id,
+      documentType: tmpl.templateType,
+      title: request.title,
+      personnelIds: null,
+      filePath: result.filePath
+    })
+    .run()
+  const docId = Number(dbResult.lastInsertRowid)
+
+  db.insert(auditLog)
+    .values({
+      tableName: 'generated_documents',
+      recordId: docId,
+      action: 'generate',
+      newValues: JSON.stringify({
+        templateId: tmpl.id,
+        templateType: tmpl.templateType,
+        title: request.title,
+        filePath: result.filePath,
+        executionDate: isoDate,
+        brBatNumber,
+        brBatDate
       })
     })
     .run()
