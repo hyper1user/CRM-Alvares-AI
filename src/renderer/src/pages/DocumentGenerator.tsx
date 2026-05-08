@@ -65,9 +65,15 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   injury_certificate: <MedicineBoxOutlined style={{ fontSize: 32, color: '#fa541c' }} />,
   report: <AlertOutlined style={{ fontSize: 32, color: '#faad14' }} />,
   certificate: <SafetyCertificateOutlined style={{ fontSize: 32, color: '#722ed1' }} />,
-  // v1.4.0: special xlsx pipeline.
-  xlsx_dgv: <DollarOutlined style={{ fontSize: 32, color: '#13c2c2' }} />
+  // v1.4.0/v1.5.0: special pipelines (xlsx + docx month-picker).
+  xlsx_dgv: <DollarOutlined style={{ fontSize: 32, color: '#13c2c2' }} />,
+  docx_confirmation: <FileDoneOutlined style={{ fontSize: 32, color: '#1890ff' }} />
 }
+
+// v1.5.0: типи шаблонів, що використовують спеціальний UI з DatePicker
+// (місяць) замість TemplateFieldsForm. Обидва приймають fields={year,month}
+// і повертають {canceled:true}/GeneratedDocument через окремі IPC-канали.
+const MONTH_PICKER_TYPES = ['xlsx_dgv', 'docx_confirmation'] as const
 
 export default function DocumentGenerator(): JSX.Element {
   const { templates, loading: templatesLoading } = useTemplateList()
@@ -85,6 +91,9 @@ export default function DocumentGenerator(): JSX.Element {
   const [form] = Form.useForm()
 
   const isXlsxDgv = selectedTemplate?.templateType === 'xlsx_dgv'
+  const isDocxConfirmation = selectedTemplate?.templateType === 'docx_confirmation'
+  // v1.5.0: спільна гілка UI для обох month-picker-шаблонів.
+  const isMonthPicker = !!selectedTemplate && (MONTH_PICKER_TYPES as readonly string[]).includes(selectedTemplate.templateType)
 
   // Templates per active category, excluding 'retired' globally.
   const visibleTemplates = useMemo(
@@ -92,9 +101,11 @@ export default function DocumentGenerator(): JSX.Element {
     [templates, activeCategory]
   )
 
-  // Load tags when DOCX template selected. Skip for xlsx_dgv (no docx tags).
+  // Load tags when DOCX template selected. Skip for month-picker types
+  // (xlsx_dgv не має тегів взагалі; docx_confirmation має, але вони
+  // підставляються автоматично з attendance — юзер їх не заповнює).
   useEffect(() => {
-    if (!selectedTemplate || isXlsxDgv) {
+    if (!selectedTemplate || isMonthPicker) {
       setTags([])
       return
     }
@@ -104,7 +115,7 @@ export default function DocumentGenerator(): JSX.Element {
       .then((t) => setTags(t ?? []))
       .catch(() => setTags([]))
       .finally(() => setTagsLoading(false))
-  }, [selectedTemplate, isXlsxDgv])
+  }, [selectedTemplate, isMonthPicker])
 
   const handleSelectTemplate = (tmpl: DocumentTemplate): void => {
     setSelectedTemplate(tmpl)
@@ -119,17 +130,25 @@ export default function DocumentGenerator(): JSX.Element {
     if (!selectedTemplate) return
     setGenerating(true)
     try {
-      // v1.4.0: розгалуження за templateType. Для xlsx_dgv — окремий
-      // async-канал з save-dialog'ом і year/month у fields.
-      if (isXlsxDgv) {
-        const response = await window.api.documentsGenerateXlsxDgv({
+      // v1.4.0/v1.5.0: розгалуження за templateType. Для month-picker
+      // шаблонів — окремий IPC-канал з save-dialog'ом і year/month у
+      // fields. Спільний контракт response (canceled/error/result).
+      if (isMonthPicker) {
+        const fields = {
+          year: String(period.year()),
+          month: String(period.month() + 1)
+        }
+        const titleFallback = isXlsxDgv
+          ? `ДГВ-рапорт ${period.format('MMMM YYYY')}`
+          : `Підтвердження ${period.format('MMMM YYYY')}`
+        const data = {
           templateId: selectedTemplate.id,
-          title: form.getFieldValue('title') || `ДГВ-рапорт ${period.format('MMMM YYYY')}`,
-          fields: {
-            year: String(period.year()),
-            month: String(period.month() + 1)
-          }
-        })
+          title: form.getFieldValue('title') || titleFallback,
+          fields
+        }
+        const response = isXlsxDgv
+          ? await window.api.documentsGenerateXlsxDgv(data)
+          : await window.api.documentsGenerateConfirmation(data)
         if (response?.canceled) {
           message.info('Генерацію скасовано')
           return
@@ -140,7 +159,7 @@ export default function DocumentGenerator(): JSX.Element {
         }
         setResult(response)
         setCurrent(3)
-        message.success('ДГВ-рапорт згенеровано!')
+        message.success(isXlsxDgv ? 'ДГВ-рапорт згенеровано!' : 'Підтвердження згенеровано!')
         return
       }
 
@@ -193,7 +212,7 @@ export default function DocumentGenerator(): JSX.Element {
 
   const steps = [
     { title: 'Шаблон' },
-    { title: isXlsxDgv ? 'Період' : 'Дані' },
+    { title: isMonthPicker ? 'Період' : 'Дані' },
     { title: 'Перевірка' },
     { title: 'Готово' }
   ]
@@ -259,18 +278,22 @@ export default function DocumentGenerator(): JSX.Element {
         </Card>
       )}
 
-      {/* Step 1: Fill Data (DOCX) or Pick Period (xlsx_dgv) */}
+      {/* Step 1: Fill Data (DOCX) or Pick Period (month-picker types) */}
       {current === 1 && selectedTemplate && (
-        <Card title={`${isXlsxDgv ? 'Період для' : 'Заповнення:'} ${selectedTemplate.name}`}>
-          {isXlsxDgv ? (
-            // v1.4.0: спеціальний UI для xlsx_dgv — тільки місяць.
-            // ОС, періоди, підстави виплат — все автоматично з attendance +
-            // status_types.dgv_code + dgv_month_meta. Жодних tag'ів немає.
+        <Card title={`${isMonthPicker ? 'Період для' : 'Заповнення:'} ${selectedTemplate.name}`}>
+          {isMonthPicker ? (
+            // v1.4.0/v1.5.0: спільний UI для xlsx_dgv та docx_confirmation —
+            // тільки місяць. Дані ОС, періоди — автоматично з attendance +
+            // status_types.dgv_code. Інформативний блок різниться за типом.
             <Form form={form} layout="vertical" style={{ maxWidth: 480 }}>
               <Form.Item
                 name="title"
                 label="Назва документа"
-                initialValue={`ДГВ-рапорт ${period.format('MMMM YYYY')}`}
+                initialValue={
+                  isXlsxDgv
+                    ? `ДГВ-рапорт ${period.format('MMMM YYYY')}`
+                    : `Підтвердження ${period.format('MMMM YYYY')}`
+                }
               >
                 <Input placeholder="Назва для архіву" />
               </Form.Item>
@@ -298,10 +321,21 @@ export default function DocumentGenerator(): JSX.Element {
                   color: 'var(--fg-3)'
                 }}
               >
-                Дані беруться автоматично з табелю присутності (attendance) і
-                ДГВ-маппингу статусів. Підстави виплат — з налаштувань місяця
-                (dgv_month_meta). 4 секції рапорту: 100К, 30К, не виплачувати,
-                не брав участі.
+                {isXlsxDgv ? (
+                  <>
+                    Дані беруться автоматично з табелю присутності і ДГВ-маппингу
+                    статусів. Підстави виплат — з налаштувань місяця. 4 секції:
+                    100К, 30К, не виплачувати, не брав участі.
+                  </>
+                ) : (
+                  <>
+                    Word-документ з 2 секціями: п.1 (100К/РОП) і п.2 (30К). Бойові
+                    розпорядження для рядових генеруються автоматично за формулою
+                    <code style={{ marginLeft: 4 }}>№doy_of_year від (D-1)</code>.
+                    Командир роти отримує порожнє поле «Підстава» — вставляєш
+                    БР/БН командира батальйону вручну в Word після генерації.
+                  </>
+                )}
               </div>
             </Form>
           ) : (
@@ -346,17 +380,19 @@ export default function DocumentGenerator(): JSX.Element {
           <div style={{ marginBottom: 16 }}>
             <Text strong>Назва:</Text>{' '}
             {form.getFieldValue('title') ||
-              (isXlsxDgv
-                ? `ДГВ-рапорт ${period.format('MMMM YYYY')}`
+              (isMonthPicker
+                ? `${isXlsxDgv ? 'ДГВ-рапорт' : 'Підтвердження'} ${period.format('MMMM YYYY')}`
                 : selectedTemplate.name)}
           </div>
 
-          {isXlsxDgv ? (
+          {isMonthPicker ? (
             <div style={{ marginBottom: 16 }}>
               <Text strong>Період:</Text> {period.format('MMMM YYYY')}
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>
-                Натиснувши «Згенерувати», з'явиться діалог збереження. Пік
-                файлу зберігається у вибрану папку, копія — в архіві Документів.
+                Натиснувши «Згенерувати», з'явиться діалог збереження.
+                {isDocxConfirmation
+                  ? ' Після цього відкрий .docx у Word і вставити «Підставу» для командира роти (БР/БН від батальйону).'
+                  : ' Файл зберігається у вибрану папку, копія — в архіві Документів.'}
               </div>
             </div>
           ) : (

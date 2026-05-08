@@ -9,6 +9,7 @@ import { documentTemplates, generatedDocuments, settings, personnel, auditLog } 
 import { eq, desc } from 'drizzle-orm'
 import { generateDocx, getTemplateTags, createMinimalDocx } from './docx-engine'
 import { buildDgvReport } from '../export/dgv-report-builder'
+import { buildConfirmationReport } from '../export/confirmation-builder'
 import type {
   DocumentTemplate,
   GeneratedDocument,
@@ -230,6 +231,19 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
     category: 'monetary',
     description: 'Рапорт ДГВ на місяць (4 секції: 100К/30К/п.6/п.7) у форматі .xlsx',
     fileName: 'dgv-report-special.placeholder',
+    lines: []
+  },
+  // v1.5.0: Підтвердження участі — звичайний docx pipeline, але зі
+  // спеціальним UI (DatePicker замість TemplateFieldsForm). Генерація
+  // через окремий handler `generateConfirmationDocument`, який знає
+  // про дві loop-секції {#section1}/{#section2}, БР-формулу для
+  // рядових і командирське виключення.
+  {
+    name: 'Підтвердження',
+    templateType: 'docx_confirmation',
+    category: 'monetary',
+    description: 'Підтвердження участі у бойових діях за місяць (п.1=100К/РОП + п.2=30К) у форматі .docx',
+    fileName: 'confirmation-template.docx',
     lines: []
   }
 ]
@@ -495,6 +509,91 @@ export async function generateXlsxDgvDocument(
     })
     .run()
 
+  const docId = Number(dbResult.lastInsertRowid)
+
+  db.insert(auditLog)
+    .values({
+      tableName: 'generated_documents',
+      recordId: docId,
+      action: 'generate',
+      newValues: JSON.stringify({
+        templateId: tmpl.id,
+        templateType: tmpl.templateType,
+        title: request.title,
+        filePath: result.filePath,
+        year,
+        month
+      })
+    })
+    .run()
+
+  return {
+    id: docId,
+    templateId: tmpl.id,
+    documentType: tmpl.templateType,
+    title: request.title,
+    personnelIds: null,
+    filePath: result.filePath,
+    generatedAt: new Date().toISOString()
+  }
+}
+
+/**
+ * v1.5.0: Special-case generator для шаблону templateType='docx_confirmation'.
+ *
+ * На відміну від generateXlsxDgvDocument:
+ *   * Це Word, не Excel. Через docxtemplater з 2 секціями ({#section1},
+ *     {#section2}). Шаблон лежить за tmpl.filePath (звичайно копіюється
+ *     з resources/templates/confirmation-template.docx у userData/templates
+ *     при першому seed).
+ *   * Логіка БР-номерів і командирського виключення сидить у
+ *     buildConfirmationReport — він приймає шлях до .docx і повертає
+ *     filePath після save-dialog'а.
+ *
+ * Очікує request.fields = { year: '2026', month: '5' }.
+ */
+export async function generateConfirmationDocument(
+  request: GenerateDocumentRequest
+): Promise<GeneratedDocument | { canceled: true }> {
+  const db = getDatabase()
+
+  const tmpl = db
+    .select()
+    .from(documentTemplates)
+    .where(eq(documentTemplates.id, request.templateId))
+    .get() as DocumentTemplate | undefined
+
+  if (!tmpl) throw new Error(`Template not found: ${request.templateId}`)
+  if (tmpl.templateType !== 'docx_confirmation') {
+    throw new Error(`Expected docx_confirmation template, got: ${tmpl.templateType}`)
+  }
+  if (!existsSync(tmpl.filePath)) {
+    throw new Error(`Template file not found: ${tmpl.filePath}`)
+  }
+
+  const yearStr = request.fields?.year ?? ''
+  const monthStr = request.fields?.month ?? ''
+  const year = parseInt(yearStr, 10)
+  const month = parseInt(monthStr, 10)
+  if (!year || !month || month < 1 || month > 12) {
+    throw new Error(`Invalid year/month: ${yearStr}/${monthStr}`)
+  }
+
+  const result = await buildConfirmationReport(year, month, tmpl.filePath)
+  if (!result.success || !result.filePath) {
+    return { canceled: true }
+  }
+
+  const dbResult = db
+    .insert(generatedDocuments)
+    .values({
+      templateId: tmpl.id,
+      documentType: tmpl.templateType,
+      title: request.title,
+      personnelIds: null,
+      filePath: result.filePath
+    })
+    .run()
   const docId = Number(dbResult.lastInsertRowid)
 
   db.insert(auditLog)

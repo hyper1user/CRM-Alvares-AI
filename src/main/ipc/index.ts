@@ -41,6 +41,7 @@ import {
   getTemplateTagsById,
   generateDocument,
   generateXlsxDgvDocument,
+  generateConfirmationDocument,
   listGeneratedDocuments,
   openDocument,
   deleteGeneratedDocument
@@ -2105,6 +2106,17 @@ export function registerIpcHandlers(): void {
       return await generateXlsxDgvDocument(request)
     } catch (err) {
       console.error('[ipc] DOCUMENTS_GENERATE_XLSX_DGV error:', err)
+      return { error: true, message: String(err) }
+    }
+  })
+
+  // v1.5.0: аналогічний канал для шаблону templateType='docx_confirmation'.
+  // Word-документ через docxtemplater з 2 loop-секціями + БР-формула.
+  safeHandle(IPC.DOCUMENTS_GENERATE_DOCX_CONFIRMATION, async (_event, request) => {
+    try {
+      return await generateConfirmationDocument(request)
+    } catch (err) {
+      console.error('[ipc] DOCUMENTS_GENERATE_DOCX_CONFIRMATION error:', err)
       return { error: true, message: String(err) }
     }
   })

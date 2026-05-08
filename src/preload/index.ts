@@ -137,6 +137,15 @@ const api = {
     title: string
     fields: Record<string, string>
   }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_XLSX_DGV, data),
+  // v1.5.0: спеціальний канал для docx_confirmation. Той самий контракт
+  // як xlsx_dgv (fields={year,month}, повертає GeneratedDocument |
+  // {canceled:true}). UI Generator'а має один спільний special-case
+  // для обох.
+  documentsGenerateConfirmation: (data: {
+    templateId: number
+    title: string
+    fields: Record<string, string>
+  }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_DOCX_CONFIRMATION, data),
   documentsList: (filters?: { documentType?: string; search?: string }) =>
     ipcRenderer.invoke(IPC.DOCUMENTS_LIST, filters),
   documentsOpen: (filePath: string) => ipcRenderer.invoke(IPC.DOCUMENTS_OPEN, filePath),

@@ -55,6 +55,9 @@ export const IPC = {
   DOCUMENTS_GENERATE: 'documents:generate',
   // v1.4.0: окремий канал для xlsx_dgv (асинхронний, з save-dialog'ом)
   DOCUMENTS_GENERATE_XLSX_DGV: 'documents:generate-xlsx-dgv',
+  // v1.5.0: окремий канал для docx_confirmation (Word з 2 секціями
+  // через docxtemplater + автоматичні БР для рядових)
+  DOCUMENTS_GENERATE_DOCX_CONFIRMATION: 'documents:generate-docx-confirmation',
   DOCUMENTS_LIST: 'documents:list',
   DOCUMENTS_OPEN: 'documents:open',
   DOCUMENTS_DELETE: 'documents:delete',
