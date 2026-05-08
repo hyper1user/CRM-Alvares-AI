@@ -253,6 +253,7 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
 
       status TEXT DEFAULT 'active',
       excluded_at TEXT,
+      br_role TEXT,
       additional_info TEXT,
       notes TEXT,
 
@@ -640,6 +641,9 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // 'ЗБ' у v1.4.0/v1.4.2 (секція 6), а правильно null (зник безвісти —
   // звітність обривається).
   fixDgvMappingV143(sqliteDb)
+
+  // v1.6.0: persistent роль бійця у Бойовому розпорядженні.
+  addBrRoleColumn(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -1142,6 +1146,18 @@ function fixDgvMappingV143(sqliteDb: InstanceType<typeof Database>): void {
 
   if (total > 0) {
     console.log(`[db] fixDgvMappingV143: уточнено dgv_code для ${total} статусів`)
+  }
+}
+
+// v1.6.0: ALTER personnel ADD COLUMN br_role TEXT. Persistent роль бійця
+// у Бойовому розпорядженні (одна з 15 BR_ROLES або null). Адмінка
+// /settings/br-roles дозволяє юзеру призначити вручну, в т.ч. через
+// «Auto-fill defaults» кнопку (autoAssignRole за посадою).
+function addBrRoleColumn(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(personnel)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'br_role')) {
+    sqliteDb.exec('ALTER TABLE personnel ADD COLUMN br_role TEXT')
+    console.log('[db] addBrRoleColumn: додано колонку br_role')
   }
 }
 

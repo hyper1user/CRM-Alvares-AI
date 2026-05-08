@@ -28,6 +28,9 @@ const api = {
   personnelUpdate: (id: number, data: Record<string, unknown>) =>
     ipcRenderer.invoke(IPC.PERSONNEL_UPDATE, id, data),
   personnelDelete: (id: number) => ipcRenderer.invoke(IPC.PERSONNEL_DELETE, id),
+  // v1.6.0: bulk-set br_role для адмінки /settings/br-roles
+  personnelBrRolesBulkSet: (items: Array<{ personnelId: number; brRole: string | null }>) =>
+    ipcRenderer.invoke(IPC.PERSONNEL_BR_ROLES_BULK_SET, items),
   personnelSearch: (query: string) => ipcRenderer.invoke(IPC.PERSONNEL_SEARCH, query),
 
   // Positions CRUD

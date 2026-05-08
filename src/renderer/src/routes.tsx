@@ -21,6 +21,7 @@ import Statistics from './pages/Statistics'
 import ImportExport from './pages/ImportExport'
 import Settings from './pages/Settings'
 import StatusTypesAdmin from './pages/StatusTypesAdmin'
+import BrRolesAdmin from './pages/BrRolesAdmin'
 
 export default function AppRoutes(): JSX.Element {
   return (
@@ -47,6 +48,7 @@ export default function AppRoutes(): JSX.Element {
       <Route path="/import-export" element={<ImportExport />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="/settings/statuses" element={<StatusTypesAdmin />} />
+      <Route path="/settings/br-roles" element={<BrRolesAdmin />} />
     </Routes>
   )
 }

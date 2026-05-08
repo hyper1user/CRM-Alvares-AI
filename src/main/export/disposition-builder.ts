@@ -29,7 +29,7 @@ import Docxtemplater from 'docxtemplater'
 import { getDatabase } from '../db/connection'
 import { personnel, ranks, positions, attendance, statusTypes } from '../db/schema'
 import { eq, and, asc, sql } from 'drizzle-orm'
-import { BR_ROLES, autoAssignRole } from '@shared/enums/br-roles'
+import { BR_ROLES, BR_ROLE_BY_NAME } from '@shared/enums/br-roles'
 import { getBrNumber } from './br-calculator'
 
 interface SoldierForBr {
@@ -150,9 +150,13 @@ export async function buildDispositionReport(
   const db = getDatabase()
   const isoDate = `${executionDate.getFullYear()}-${String(executionDate.getMonth() + 1).padStart(2, '0')}-${String(executionDate.getDate()).padStart(2, '0')}`
 
-  // 1. Беремо ОС з attendance × status_types на executionDate з кодами 100|роп
-  // (бойова присутність). Це той самий набір, що йде у п.1 Підтвердження
-  // за цей день.
+  // 1. Беремо ОС з attendance × status_types на executionDate з кодами 100|роп.
+  // Включаємо brRole — це визначає шлях розподілу:
+  //   * dgvCode='роп' → завжди в positionPool ({{ROP}}). Боєць фізично
+  //     на ЛБЗ, навіть якщо є призначена роль — у Розпорядженні він не
+  //     виконує цю роль, він на позиції.
+  //   * dgvCode='100' AND brRole IS NOT NULL → відповідна {{ROLE_*}}.
+  //   * dgvCode='100' AND brRole IS NULL → positionPool (як non-assigned РВ).
   const rows = db
     .select({
       personnelId: personnel.id,
@@ -160,7 +164,8 @@ export async function buildDispositionReport(
       rankName: ranks.name,
       positionTitle: positions.title,
       positionIdx: personnel.currentPositionIdx,
-      dgvCode: statusTypes.dgvCode
+      dgvCode: statusTypes.dgvCode,
+      brRole: personnel.brRole
     })
     .from(attendance)
     .innerJoin(personnel, eq(attendance.personnelId, personnel.id))
@@ -176,10 +181,7 @@ export async function buildDispositionReport(
     .orderBy(asc(personnel.currentPositionIdx))
     .all()
 
-  // 2. Групуємо за роллю (auto-assign за посадою — MVP).
-  // Бійці без ролі (autoAssignRole повернув null) — окремий «position-only»
-  // pool: вони підуть у {{ROP}} (Особовий склад на позиціях). НЕ у
-  // «Резервні групи» автоматично — резерв юзер призначає вручну в v1.6.1.
+  // 2. Розподіл за пріоритетом: РОП > role > positionPool.
   const byRole = new Map<string, SoldierForBr[]>()
   for (const role of BR_ROLES) {
     byRole.set(role.name, [])
@@ -192,9 +194,20 @@ export async function buildDispositionReport(
       positionTitle: r.positionTitle,
       positionIdx: r.positionIdx
     }
-    const roleName = autoAssignRole(r.positionTitle ?? '')
-    if (roleName) {
-      byRole.get(roleName)!.push(soldier)
+
+    // РОП-бійці (dgvCode='роп') ЗАВЖДИ у positionPool — ігноруємо роль,
+    // бо вони на ЛБЗ виконують бойові завдання, не штатну роль.
+    if (r.dgvCode === 'роп') {
+      positionPool.push(soldier)
+      continue
+    }
+
+    // РВ-бійці (dgvCode='100'): якщо є валідна персистентна роль —
+    // у відповідну категорію. Якщо немає — у positionPool. Валідація
+    // через BR_ROLE_BY_NAME (захист від stale-значень типу старих ролей,
+    // що вже не існують у поточному списку).
+    if (r.brRole && BR_ROLE_BY_NAME.has(r.brRole)) {
+      byRole.get(r.brRole)!.push(soldier)
     } else {
       positionPool.push(soldier)
     }

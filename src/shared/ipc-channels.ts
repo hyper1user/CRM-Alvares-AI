@@ -15,6 +15,9 @@ export const IPC = {
   PERSONNEL_GET: 'personnel:get',
   PERSONNEL_CREATE: 'personnel:create',
   PERSONNEL_UPDATE: 'personnel:update',
+  // v1.6.0: масове оновлення br_role (для адмінки /settings/br-roles).
+  // Приймає масив { personnelId, brRole | null } — одна транзакція + 1 audit-запис.
+  PERSONNEL_BR_ROLES_BULK_SET: 'personnel:br-roles-bulk-set',
   PERSONNEL_DELETE: 'personnel:delete',
   PERSONNEL_SEARCH: 'personnel:search',
 

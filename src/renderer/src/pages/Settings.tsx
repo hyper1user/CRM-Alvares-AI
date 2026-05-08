@@ -156,14 +156,24 @@ export default function Settings(): JSX.Element {
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
           Кастомізація значень, що використовуються в усіх модулях.
         </Paragraph>
-        <Button
-          icon={<TagsOutlined />}
-          onClick={() => navigate('/settings/statuses')}
-          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          Статуси особового складу
-          <RightOutlined style={{ fontSize: 11 }} />
-        </Button>
+        <Space wrap>
+          <Button
+            icon={<TagsOutlined />}
+            onClick={() => navigate('/settings/statuses')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            Статуси особового складу
+            <RightOutlined style={{ fontSize: 11 }} />
+          </Button>
+          <Button
+            icon={<TagsOutlined />}
+            onClick={() => navigate('/settings/br-roles')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            Ролі у Бойовому розпорядженні
+            <RightOutlined style={{ fontSize: 11 }} />
+          </Button>
+        </Space>
       </Card>
 
       {/* Docs folder */}

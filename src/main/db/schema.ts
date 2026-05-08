@@ -185,6 +185,10 @@ export const personnel = sqliteTable(
 
     status: text('status').default('active'),
     excludedAt: text('excluded_at'),
+    // v1.6.0: Роль бійця у Бойовому розпорядженні (одна з 15 з
+    // BR_ROLES, або null = без призначеної ролі). Persistent — змінюється
+    // через адмінку /settings/br-roles, не зачіпається табелем.
+    brRole: text('br_role'),
     additionalInfo: text('additional_info'),
     notes: text('notes'),
 

@@ -116,6 +116,10 @@ export const personnelCreateSchema = z.object({
   specialtyCode: z.string().optional().or(z.literal('')),
   additionalInfo: z.string().optional().or(z.literal('')),
   notes: z.string().optional().or(z.literal('')),
+  // v1.6.0: роль у Бойовому розпорядженні (одна з BR_ROLES.name або null).
+  // Не валідуємо проти whitelist'у тут — валідно як вільний текст,
+  // disposition-builder перевіряє через BR_ROLE_BY_NAME мапу.
+  brRole: z.string().nullable().optional(),
 
   // Закордонний паспорт
   foreignPassportSeries: z.string().optional().or(z.literal('')),

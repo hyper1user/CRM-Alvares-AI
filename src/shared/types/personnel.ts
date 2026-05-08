@@ -67,6 +67,8 @@ export interface Personnel {
 
   status: 'active' | 'excluded' | 'disposed'
   excludedAt: string | null
+  // v1.6.0: роль у Бойовому розпорядженні (одна з BR_ROLES або null).
+  brRole: string | null
   additionalInfo: string | null
   notes: string | null
 
@@ -132,4 +134,6 @@ export interface PersonnelListItem {
   phone: string | null
   status: string
   excludedAt: string | null
+  // v1.6.0: для адмінки /settings/br-roles
+  brRole: string | null
 }

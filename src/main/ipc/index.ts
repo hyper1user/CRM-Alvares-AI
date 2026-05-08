@@ -153,7 +153,8 @@ export function registerIpcHandlers(): void {
           currentSubdivision: personnel.currentSubdivision,
           phone: personnel.phone,
           status: personnel.status,
-          excludedAt: personnel.excludedAt
+          excludedAt: personnel.excludedAt,
+          brRole: personnel.brRole
         })
         .from(personnel)
         .leftJoin(ranks, eq(personnel.rankId, ranks.id))
@@ -376,6 +377,42 @@ export function registerIpcHandlers(): void {
 
     return { ok: true }
   })
+
+  // v1.6.0: масове оновлення br_role для адмінки /settings/br-roles.
+  // Приймає {personnelId, brRole}[]; одна транзакція + один audit-запис
+  // (паттерн з ATTENDANCE_BULK_SET v0.9.2). brRole=null очищає роль;
+  // рядок — встановлює (валідація проти whitelist BR_ROLE_NAMES на фронтенді).
+  safeHandle(
+    IPC.PERSONNEL_BR_ROLES_BULK_SET,
+    (_event, items: Array<{ personnelId: number; brRole: string | null }>) => {
+      if (!Array.isArray(items) || items.length === 0) {
+        return { ok: true, updated: 0 }
+      }
+      const db = getDatabase()
+      let updated = 0
+      db.transaction(() => {
+        for (const it of items) {
+          const res = db
+            .update(personnel)
+            .set({ brRole: it.brRole ?? null, updatedAt: sql`datetime('now')` })
+            .where(eq(personnel.id, it.personnelId))
+            .run()
+          updated += res.changes
+        }
+      })
+
+      db.insert(auditLog)
+        .values({
+          tableName: 'personnel',
+          recordId: 0,
+          action: 'br_roles_bulk_set',
+          newValues: JSON.stringify({ count: items.length, updated })
+        })
+        .run()
+
+      return { ok: true, updated }
+    }
+  )
 
   // Personnel search (alias — uses same logic as list with search filter)
   safeHandle(IPC.PERSONNEL_SEARCH, (_event, query: string) => {
