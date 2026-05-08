@@ -114,6 +114,22 @@ function pibToDocumentFormat(fullName: string, rank: string | null): string {
   return rank?.trim() ? `${rank.trim()} ${formatted}` : formatted
 }
 
+/**
+ * Формат для АРКУША ДОВЕДЕННЯ:
+ * «звання____________________Ім'я ПРІЗВИЩЕ» (20 підкреслень для підпису).
+ * 1-в-1 з Alvares-AI/br_updater.py:pib_to_table_format.
+ */
+function pibToAckFormat(fullName: string, rank: string | null): string {
+  const parts = fullName.trim().split(/\s+/)
+  const namePart =
+    parts.length < 2
+      ? fullName.toUpperCase()
+      : `${parts[1]} ${parts[0].toUpperCase()}`
+  const rankPart = rank?.trim() ?? ''
+  // 20 underscores — місце для рукописного підпису.
+  return `${rankPart}____________________${namePart}`
+}
+
 function resolveResourcePath(relPath: string): string | null {
   const candidates = [
     join(process.resourcesPath ?? '', relPath),
@@ -161,11 +177,14 @@ export async function buildDispositionReport(
     .all()
 
   // 2. Групуємо за роллю (auto-assign за посадою — MVP).
-  // Бійці без ролі (autoAssignRole повернув null) — у «Резервні групи».
+  // Бійці без ролі (autoAssignRole повернув null) — окремий «position-only»
+  // pool: вони підуть у {{ROP}} (Особовий склад на позиціях). НЕ у
+  // «Резервні групи» автоматично — резерв юзер призначає вручну в v1.6.1.
   const byRole = new Map<string, SoldierForBr[]>()
   for (const role of BR_ROLES) {
     byRole.set(role.name, [])
   }
+  const positionPool: SoldierForBr[] = []
   for (const r of rows) {
     const soldier: SoldierForBr = {
       fullName: r.fullName,
@@ -173,27 +192,39 @@ export async function buildDispositionReport(
       positionTitle: r.positionTitle,
       positionIdx: r.positionIdx
     }
-    const roleName = autoAssignRole(r.positionTitle ?? '') ?? 'Резервні групи'
-    byRole.get(roleName)!.push(soldier)
+    const roleName = autoAssignRole(r.positionTitle ?? '')
+    if (roleName) {
+      byRole.get(roleName)!.push(soldier)
+    } else {
+      positionPool.push(soldier)
+    }
   }
 
   // 3. Формуємо текст для кожного {{ROLE_*}} плейсхолдера.
-  // Кілька бійців — через перенос рядка (linebreaks: true у docxtemplater).
+  // v1.6.0 hotfix: розділювач — `, ` (кома з пробілом), не \n. Так у
+  // Alvares-AI: всі ОС однієї ролі в одному параграфі через коми.
+  // Це і чистіше виглядає у Word'і, і відповідає еталонному рапорту.
+  const formatList = (soldiers: SoldierForBr[], emptyMarker = '—'): string =>
+    soldiers.length === 0
+      ? emptyMarker
+      : soldiers.map((s) => pibToDocumentFormat(s.fullName, s.rankName)).join(', ')
+
   const roleTexts: Record<string, string> = {}
   for (const role of BR_ROLES) {
-    const soldiers = byRole.get(role.name) ?? []
-    roleTexts[role.placeholderTag] = soldiers
-      .map((s) => pibToDocumentFormat(s.fullName, s.rankName))
-      .join('\n') || '—'
+    roleTexts[role.placeholderTag] = formatList(byRole.get(role.name) ?? [])
   }
 
   // 4. Lookup локації для дати.
   const locationsPath = resolveResourcePath('br/locations.md') ?? ''
   const { settlement, ksp } = getLocationForDate(locationsPath, executionDate)
 
-  // 5. ACK_LIST — повний список усіх бійців із розпорядження.
+  // 5. ACK_LIST — повний список усіх бійців у форматі для АРКУША ДОВЕДЕННЯ
+  // («звання____________________Ім'я ПРІЗВИЩЕ»). Кожен ОС у власному
+  // рядку через `\n` — docxtemplater з linebreaks:true перетворить це
+  // на <w:br/> всередині одного параграфа (візуально як окремі рядки
+  // у Word'і). Те саме поведінка, що в Alvares-AI.
   const ackList = rows
-    .map((r) => pibToDocumentFormat(r.fullName, r.rankName))
+    .map((r) => pibToAckFormat(r.fullName, r.rankName))
     .join('\n')
 
   // 6. Формула БР роти.
@@ -214,6 +245,12 @@ export async function buildDispositionReport(
     nullGetter: () => ''
   })
 
+  // v1.6.0 hotfix: ROP — це список ОС на позиціях (не ROP.txt-фраза, як
+  // я раніше помилково вважав). Беруться бійці з 100/роп що НЕ потрапили
+  // у жодну з 14 «робочих» ролей через auto-assign — тобто ті, чия посада
+  // не дала ключового слова. Через коми.
+  const ropList = formatList(positionPool, '')
+
   const renderData: Record<string, string | boolean> = {
     dispositionNumber,
     dispositionDate,
@@ -222,9 +259,9 @@ export async function buildDispositionReport(
     'дата_бр': brBatDate,
     'КСП_РОТИ': ksp,
     'населений_пункт': settlement,
-    hasRop: false, // MVP: без ROP-блоку. v1.6.1 — UI селектор.
+    hasRop: false, // MVP: без ударно-пошукового ROP-блоку. v1.6.1 — UI селектор.
     ROP_FIRST: '',
-    ROP: '',
+    ROP: ropList, // ОС на позиціях, не fraза з ROP.txt
     ACK_LIST: ackList,
     ...roleTexts
   }
