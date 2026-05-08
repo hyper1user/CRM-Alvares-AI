@@ -627,9 +627,13 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
 
   // v1.4.0: dgv_code колонка у status_types — мапинг status_code → dgv_code
   // для генерації ДГВ-рапорту з attendance (замість окремого dgv_marks).
-  // Initial mapping для 13 існуючих кодів з ЕЖООС. Юзер може правити
-  // через CRUD адмінки статусів (`StatusTypesAdmin`).
+  // Initial mapping з ЕЖООС. Юзер може правити через `StatusTypesAdmin`.
   addDgvCodeToStatusTypes(sqliteDb)
+
+  // v1.4.2: hotfix mapping'а v1.4.0 для існуючих БД (РВ/РЗ/РШ/РОП → 'роп',
+  // ППД/АДП/БЗВП → '100' були помилкові). Кожен UPDATE з guard'ом на
+  // конкретне старе значення — не перетирає правки юзера.
+  fixDgvMappingV142(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -1010,13 +1014,20 @@ function addCategoryToDocumentTemplates(sqliteDb: InstanceType<typeof Database>)
 }
 
 // v1.4.0: ALTER status_types ADD COLUMN dgv_code TEXT + initial mapping.
-// Mapping будується від «бойових» кодів РВ/РЗ/РШ/РОП → 'роп' (узгоджено
-// з is_combat=true з v1.2.1), бо РОП = район оперативного призначення
-// (на позиції, 100К виплата). ППД/АДП/БЗВП → '100' — командирське рішення
-// нарахувати 100К без РОП. ВПХ/ВПС/ВПП/СЗЧ/ЗБ/200 — самі собі тотожні
-// (коди status_types збігаються з DGV_CODES). НП/ПОЛОН/ВБВ/ЗВ/ДВП — null
-// (нейтральні службові статуси без виплат). Юзер може скоригувати через
-// `StatusTypesAdmin` після релізу.
+// v1.4.2: mapping приведено до ЕЖООС (аркуш Налаштування → тСтатуси).
+// Логіка:
+//   * РВ/РОП → '100' (бойова виплата 100К — Район виконання та Ротний
+//     опорний пункт, обидва на ЛБЗ)
+//   * РЗ → '30' (Район зосередження, виплата 30К)
+//   * РШ → null (Район штаб, ЕЖООС каже 50К, але для 12 ШР завжди
+//     порожньо — додавання категорії pay_50 не виправдане)
+//   * ППД/АДП/БЗВП → null (НЕ 100К як я раніше помилково заклав —
+//     це службові статуси без автоматичної виплати; командир вирішує
+//     персонально через окремий механізм у майбутніх версіях)
+//   * ВП/ВПХ/ВПС/ВПП/ШП/ВД → відповідні DGV-коди (секція 7 рапорту,
+//     «не брав участі»)
+//   * СЗЧ/АР/200/ЗБ/ПОЛОН → самі собі (секція 6 «не виплачувати»)
+// Юзер може скоригувати через `StatusTypesAdmin` після релізу.
 function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void {
   const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
   if (!cols.some((c) => c.name === 'dgv_code')) {
@@ -1026,20 +1037,24 @@ function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void 
 
   // Backfill — idempotent. WHERE dgv_code IS NULL гарантує, що ми не
   // перезапишемо налаштування юзера після першого запуску.
+  // null-mapping не пишемо взагалі (він і так default).
   const mapping: Array<[string, string]> = [
-    ['РВ', 'роп'],     // різновид районів виконання — на позиції
-    ['РЗ', 'роп'],
-    ['РШ', 'роп'],
-    ['РОП', 'роп'],    // прямий синонім, додано юзером у v1.2.1
-    ['ППД', '100'],    // пункт постійної дислокації, командирське рішення
-    ['АДП', '100'],
-    ['БЗВП', '100'],
+    ['РВ', '100'],
+    ['РОП', '100'],
+    ['РЗ', '30'],
+    // РШ → null (50К поза скоупом 12 ШР)
+    // ППД/АДП/БЗВП → null (без авто-виплати)
+    ['ВП', 'вп'],
     ['ВПХ', 'ВПХ'],
     ['ВПС', 'ВПС'],
     ['ВПП', 'ВПП'],
+    ['ШП', 'шп'],
+    ['ВД', 'вд'],
     ['СЗЧ', 'СЗЧ'],
+    ['АР', 'АР'],
+    ['200', '200'],
     ['ЗБ', 'ЗБ'],
-    ['200', '200']
+    ['ПОЛОН', 'ПОЛОН']
   ]
   let totalUpdated = 0
   for (const [statusCode, dgvCode] of mapping) {
@@ -1050,6 +1065,42 @@ function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void 
   }
   if (totalUpdated > 0) {
     console.log(`[db] addDgvCodeToStatusTypes: backfill dgv_code для ${totalUpdated} статусів`)
+  }
+}
+
+// v1.4.2: hotfix для існуючих БД, де v1.4.0 залив помилковий mapping
+// (РВ/РЗ/РШ/РОП → 'роп', ППД/АДП/БЗВП → '100'). Кожен UPDATE з guard'ом
+// на «поточне значення = старе помилкове» — щоб не перетерти, якщо юзер
+// уже змінив через адмінку статусів. Idempotent: на свіжих БД (v1.4.2+)
+// не зачіпає нічого, бо там вже правильні значення.
+function fixDgvMappingV142(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) return // ще не v1.4.0+
+
+  const fixes: Array<{ statusCode: string; oldDgv: string | null; newDgv: string | null }> = [
+    // Бойові — мали 'роп', мають '100' (РВ/РОП) або '30' (РЗ) або null (РШ)
+    { statusCode: 'РВ', oldDgv: 'роп', newDgv: '100' },
+    { statusCode: 'РОП', oldDgv: 'роп', newDgv: '100' },
+    { statusCode: 'РЗ', oldDgv: 'роп', newDgv: '30' },
+    { statusCode: 'РШ', oldDgv: 'роп', newDgv: null },
+    // ППД/АДП/БЗВП — мали '100', мають null
+    { statusCode: 'ППД', oldDgv: '100', newDgv: null },
+    { statusCode: 'АДП', oldDgv: '100', newDgv: null },
+    { statusCode: 'БЗВП', oldDgv: '100', newDgv: null }
+  ]
+
+  let totalFixed = 0
+  for (const { statusCode, oldDgv, newDgv } of fixes) {
+    // oldDgv тут завжди non-null (всі fixes мають конкретні старі значення),
+    // тож звичайний '=' OK. newDgv може бути null — better-sqlite3 биндить
+    // як NULL коректно.
+    const result = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code = ?`)
+      .run(newDgv, statusCode, oldDgv)
+    totalFixed += result.changes
+  }
+  if (totalFixed > 0) {
+    console.log(`[db] fixDgvMappingV142: виправлено dgv_code для ${totalFixed} статусів`)
   }
 }
 

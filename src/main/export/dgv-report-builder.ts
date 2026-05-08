@@ -38,6 +38,24 @@ const ABSENCE_REASON_MAP: Record<string, string> = {
   'ВЛК': 'Проходження військово-лікарської комісії'
 }
 
+// v1.4.2: коди, що автоматично потрапляють у секцію 6 рапорту
+// («Не виплачувати додаткову винагороду» — правопорушення/особливі
+// обставини). Раніше section6 фільтрувалась тільки за `punishmentReason`
+// з dgv_month_meta — і ОС зі статусом СЗЧ/АР/200/ЗБ/ПОЛОН не потрапляли
+// сюди автоматично. Тепер потрапляють — `punishmentReason`/`punishmentOrder`
+// лишаються опціональними overrides.
+const SECTION_6_CODES = ['СЗЧ', 'АР', '200', 'ЗБ', 'ПОЛОН', 'Бух', 'нар']
+
+const SECTION_6_REASON_MAP: Record<string, string> = {
+  'СЗЧ': 'Самовільне залишення військової частини',
+  'АР': 'Арешт (адміністративне затримання)',
+  '200': 'Загибель',
+  'ЗБ': 'Зник безвісти',
+  'ПОЛОН': 'Перебування у полоні',
+  'Бух': 'Задокументовано вживання алкоголю',
+  'нар': 'Задокументовано вживання наркотичних речовин'
+}
+
 interface PersonData {
   personnelId: number
   fullName: string
@@ -266,7 +284,13 @@ export async function buildDgvReport(
     // v1.3.0: section1 збирає всіх з кодами категорії pay_100 (наразі '100'+'роп').
     if (PAY_100_CODES.some((c) => codes.has(c))) section1.push(p)
     if (codes.has('30')) section2.push(p)
-    if (p.punishmentReason) section6.push(p)
+    // v1.4.2: section6 — коди правопорушень/особливих обставин АБО
+    // явний punishmentReason з dgv_month_meta (override від юзера).
+    if (
+      p.punishmentReason ||
+      SECTION_6_CODES.some((c) => codes.has(c))
+    )
+      section6.push(p)
 
     // Section 7: anyone with absence codes
     const absentCodes = [...codes].filter((c) => {
@@ -379,10 +403,18 @@ export async function buildDgvReport(
   ws.mergeCells(s6header.number, 3, s6header.number, 4)
 
   section6.forEach((p, idx) => {
+    // v1.4.2: автоматичне формування причини з кодів, якщо юзер не
+    // задав явну `punishmentReason` через dgv_month_meta. Збираємо
+    // унікальні підстави в порядку появи кодів у місяці.
+    const codes = getUsedCodes(p.days)
+    const autoReasons = SECTION_6_CODES
+      .filter((c) => codes.has(c))
+      .map((c) => SECTION_6_REASON_MAP[c])
+    const reason = p.punishmentReason || [...new Set(autoReasons)].join('; ')
     const row = ws.addRow([
       idx + 1,
       formatPersonTitle(p),
-      p.punishmentReason,
+      reason,
       '',
       p.punishmentOrder
     ])

@@ -29,7 +29,12 @@ export const DGV_CODES: DgvCode[] = [
   { code: '200', name: 'Загинув', category: 'no_pay', colorCode: '#434343', sortOrder: 16 },
   { code: 'Бух', name: 'Задокументовано вживання алкоголю', category: 'no_pay', colorCode: '#ad4e00', sortOrder: 17 },
   { code: 'нар', name: 'Задокументовано вживання наркотичних речовин', category: 'no_pay', colorCode: '#874d00', sortOrder: 18 },
-  { code: 'п.сзч', name: 'Повернувся після самовільного залишення військової частини', category: 'other', colorCode: '#ff7a45', sortOrder: 19 }
+  { code: 'п.сзч', name: 'Повернувся після самовільного залишення військової частини', category: 'other', colorCode: '#ff7a45', sortOrder: 19 },
+  // v1.4.2: додано АР і ПОЛОН — обидва йдуть у секцію 6 рапорту.
+  // ПОЛОН тимчасово в п.6 «не виплачувати» (за рішенням юзера —
+  // після службового розслідування на нього робиться окремий рапорт).
+  { code: 'АР', name: 'Арешт (адміністративне затримання)', category: 'no_pay', colorCode: '#5b8c00', sortOrder: 20 },
+  { code: 'ПОЛОН', name: 'Перебування у полоні', category: 'no_pay', colorCode: '#262626', sortOrder: 21 }
 ]
 
 export const DGV_CODE_MAP = new Map(DGV_CODES.map((c) => [c.code, c]))
