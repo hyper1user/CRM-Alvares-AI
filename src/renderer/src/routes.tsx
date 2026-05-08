@@ -18,7 +18,6 @@ import InjuriesLosses from './pages/InjuriesLosses'
 import DocumentGenerator from './pages/DocumentGenerator'
 import DocumentArchive from './pages/DocumentArchive'
 import Statistics from './pages/Statistics'
-import DgvPage from './pages/DgvPage'
 import ImportExport from './pages/ImportExport'
 import Settings from './pages/Settings'
 import StatusTypesAdmin from './pages/StatusTypesAdmin'
@@ -44,7 +43,6 @@ export default function AppRoutes(): JSX.Element {
       <Route path="/injuries" element={<InjuriesLosses />} />
       <Route path="/documents/generate" element={<DocumentGenerator />} />
       <Route path="/documents/archive" element={<DocumentArchive />} />
-      <Route path="/dgv" element={<DgvPage />} />
       <Route path="/statistics" element={<Statistics />} />
       <Route path="/import-export" element={<ImportExport />} />
       <Route path="/settings" element={<Settings />} />

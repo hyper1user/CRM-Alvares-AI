@@ -26,7 +26,6 @@ import {
   MoonOutlined,
   HomeOutlined,
   PrinterOutlined,
-  DollarOutlined,
   RightOutlined,
   SearchOutlined,
   BellOutlined,
@@ -55,7 +54,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/movements': 'Переміщення',
   '/attendance': 'Місячний табель',
   '/formation-report': 'Стройова записка',
-  '/dgv': 'Грошове забезпечення',
   '/missing-docs': 'Відсутні документи',
   '/leave': 'Відпустки',
   '/injuries': 'Поранення / Втрати',
@@ -172,7 +170,6 @@ export default function AppLayout(): JSX.Element {
         children: [
           { key: '/attendance', icon: <CalendarOutlined />, label: 'Табель' },
           { key: '/formation-report', icon: <FormOutlined />, label: 'Стройова записка' },
-          { key: '/dgv', icon: <DollarOutlined />, label: 'Грошове' },
         ],
       },
       {

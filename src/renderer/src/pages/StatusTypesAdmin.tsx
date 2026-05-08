@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons'
 import { STATUS_GROUP_NAMES, type StatusGroupName } from '@shared/validators'
 import type { StatusTypeEntry } from '@shared/enums/status-codes'
+import { DGV_CODES } from '@shared/enums/dgv-codes'
 import { invalidateLookups } from '../hooks/useLookups'
 
 type FormValues = {
@@ -32,6 +33,8 @@ type FormValues = {
   groupName: StatusGroupName
   onSupply: boolean
   isCombat: boolean
+  // v1.4.0: відповідник у DGV-семантиці. null = статус не йде у виплати.
+  dgvCode: string | null
   rewardAmount: number | null
   sortOrder: number
   colorCode: string
@@ -122,6 +125,7 @@ export default function StatusTypesAdmin(): JSX.Element {
     form.setFieldsValue({
       onSupply: false,
       isCombat: false,
+      dgvCode: null,
       sortOrder: 99,
       colorCode: '#999999',
       groupName: 'Так',
@@ -138,6 +142,7 @@ export default function StatusTypesAdmin(): JSX.Element {
       groupName: record.groupName as StatusGroupName,
       onSupply: record.onSupply,
       isCombat: record.isCombat ?? false,
+      dgvCode: record.dgvCode ?? null,
       rewardAmount: record.rewardAmount,
       sortOrder: record.sortOrder,
       colorCode: record.colorCode || '#999999'
@@ -272,6 +277,7 @@ export default function StatusTypesAdmin(): JSX.Element {
                 <th style={{ width: 180 }}>Група</th>
                 <th style={{ width: 110 }}>На забезп.</th>
                 <th style={{ width: 130 }}>Бойове</th>
+                <th style={{ width: 90 }}>ДГВ-код</th>
                 <th style={{ width: 130 }}>Винагорода</th>
                 <th style={{ width: 80 }}>Порядок</th>
                 <th style={{ width: 80 }}>Колір</th>
@@ -282,7 +288,7 @@ export default function StatusTypesAdmin(): JSX.Element {
               {loading && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}
                   >
                     Завантаження…
@@ -292,7 +298,7 @@ export default function StatusTypesAdmin(): JSX.Element {
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}
                   >
                     Не знайдено
@@ -302,7 +308,7 @@ export default function StatusTypesAdmin(): JSX.Element {
               {grouped.map(({ group, rows }) => (
                 <Fragment key={group}>
                   <tr style={{ background: 'var(--bg-2)' }}>
-                    <td colSpan={8} style={{ padding: '6px 12px' }}>
+                    <td colSpan={9} style={{ padding: '6px 12px' }}>
                       <Tag color={GROUP_COLORS[group]} style={{ fontSize: 11 }}>
                         {group}
                       </Tag>
@@ -339,6 +345,25 @@ export default function StatusTypesAdmin(): JSX.Element {
                       <td>
                         {r.isCombat ? (
                           <Tag color="red">бойове</Tag>
+                        ) : (
+                          <span className="dim">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {r.dgvCode ? (
+                          <span
+                            className="mono"
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 6px',
+                              borderRadius: 3,
+                              background: 'var(--bg-2)',
+                              border: '1px solid var(--line-1)',
+                              fontSize: 11
+                            }}
+                          >
+                            {r.dgvCode}
+                          </span>
                         ) : (
                           <span className="dim">—</span>
                         )}
@@ -496,6 +521,31 @@ export default function StatusTypesAdmin(): JSX.Element {
             }
           >
             <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="dgvCode"
+            label="ДГВ-код (грошове забезпечення)"
+            extra={
+              <span>
+                Куди мапиться цей статус у місячний ДГВ-рапорт. Бойові
+                (РВ/РЗ/РШ/РОП) → <b>роп</b> (100К). ППД/АДП/БЗВП → <b>100</b>{' '}
+                (командирське рішення без РОП). СЗЧ/ВПХ/200 — самі собі.
+                «—» = не йде у виплати (нейтральні службові статуси).
+              </span>
+            }
+          >
+            <Select
+              allowClear
+              showSearch
+              placeholder="— не використовується у виплатах"
+              optionFilterProp="label"
+              style={{ width: '100%' }}
+              options={DGV_CODES.map((c) => ({
+                label: `${c.code} — ${c.name}`,
+                value: c.code
+              }))}
+            />
           </Form.Item>
 
           <Form.Item
