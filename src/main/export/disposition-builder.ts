@@ -242,12 +242,34 @@ export function renderDispositionBuffer(
     .orderBy(asc(personnel.currentPositionIdx))
     .all()
 
-  // 2. Розподіл за пріоритетом: РОП > role > positionPool.
+  // 1b. Prev-day attendance lookup для розрізнення firstRop/continuingRop
+  // (v1.6.2). Беремо тільки роп-бійців на (executionDate - 1) — це Set personnelIds
+  // що були роп вчора. Якщо боєць сьогодні роп AND був роп вчора → продовження;
+  // інакше → перший день серії (Alvares-AI: get_first_rop_entries).
+  const prevDate = new Date(executionDate.getTime())
+  prevDate.setDate(prevDate.getDate() - 1)
+  const prevIsoDate = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`
+
+  const prevRopRows = db
+    .select({ personnelId: attendance.personnelId })
+    .from(attendance)
+    .innerJoin(statusTypes, eq(attendance.statusCode, statusTypes.code))
+    .where(and(eq(attendance.date, prevIsoDate), eq(statusTypes.dgvCode, 'роп')))
+    .all()
+  const prevRopSet = new Set<number>(prevRopRows.map((r) => r.personnelId))
+
+  // 2. Розподіл (v1.6.2 Alvares-AI semantics): firstRop / continuingRop / byRole.
+  //   * dgvCode='роп' AND prev day != роп → firstRop ({{ROP_FIRST}} + ACK_LIST)
+  //   * dgvCode='роп' AND prev day == роп → continuingRop ({{ROP}}, не у ACK)
+  //   * dgvCode='100' AND brRole valid → byRole (відповідний {{ROLE_*}} + ACK_LIST)
+  //   * dgvCode='100' AND brRole відсутня → orphan; не у byRole, але потрапляє у
+  //     ACK_LIST через `rows.filter(!continuing)` (warning-кейс — юзер не призначив).
   const byRole = new Map<string, SoldierForBr[]>()
   for (const role of BR_ROLES) {
     byRole.set(role.name, [])
   }
-  const positionPool: SoldierForBr[] = []
+  const firstRop: SoldierForBr[] = []
+  const continuingRop: SoldierForBr[] = []
   for (const r of rows) {
     const soldier: SoldierForBr = {
       fullName: r.fullName,
@@ -256,21 +278,18 @@ export function renderDispositionBuffer(
       positionIdx: r.positionIdx
     }
 
-    // РОП-бійці (dgvCode='роп') ЗАВЖДИ у positionPool — ігноруємо роль,
-    // бо вони на ЛБЗ виконують бойові завдання, не штатну роль.
     if (r.dgvCode === 'роп') {
-      positionPool.push(soldier)
+      if (prevRopSet.has(r.personnelId)) {
+        continuingRop.push(soldier)
+      } else {
+        firstRop.push(soldier)
+      }
       continue
     }
 
-    // РВ-бійці (dgvCode='100'): якщо є валідна персистентна роль —
-    // у відповідну категорію. Якщо немає — у positionPool. Валідація
-    // через BR_ROLE_BY_NAME (захист від stale-значень типу старих ролей,
-    // що вже не існують у поточному списку).
+    // dgvCode === '100' AND brRole valid: у відповідну роль; інакше — orphan.
     if (r.brRole && BR_ROLE_BY_NAME.has(r.brRole)) {
       byRole.get(r.brRole)!.push(soldier)
-    } else {
-      positionPool.push(soldier)
     }
   }
 
@@ -291,10 +310,16 @@ export function renderDispositionBuffer(
   const locationsPath = resolveResourcePath('br/locations.md') ?? ''
   const { settlement, ksp } = getLocationForDate(locationsPath, executionDate)
 
-  // 5. ACK_LIST — повний XML через `{{@ackListXml}}` (raw insertion). Це
-  // повний `<w:p>` з runs + `<w:tab/>` для leader-underscore tab-stop'у
-  // шаблону.
-  const ackListXml = buildAckListXml(rows)
+  // 5. ACK_LIST (v1.6.2) — Alvares-AI semantic: ролі + firstRop + 100-orphans,
+  // БЕЗ continuingRop (вони вже доведені раніше). Раніше у v1.6.1 — всі rows.
+  const continuingIds = new Set<number>()
+  for (const r of rows) {
+    if (r.dgvCode === 'роп' && prevRopSet.has(r.personnelId)) {
+      continuingIds.add(r.personnelId)
+    }
+  }
+  const ackRows = rows.filter((r) => !continuingIds.has(r.personnelId))
+  const ackListXml = buildAckListXml(ackRows)
 
   // 6. Формула БР роти.
   const dispositionFull = getBrNumber(executionDate) // "№91 від 31.03.2026"
@@ -313,9 +338,27 @@ export function renderDispositionBuffer(
     nullGetter: () => ''
   })
 
-  // v1.6.0 hotfix: ROP — список ОС на позиціях (не ROP.txt-фраза). Беруться
-  // бійці з 100/роп що НЕ потрапили у жодну з ролей. Через коми.
-  const ropList = formatList(positionPool, '')
+  // v1.6.2: повна Alvares-AI семантика для ROP/ROP_FIRST.
+  //   * {{ROP}} = continuingRop через `, ` (бійці що другий+ день на позиції).
+  //   * {{ROP_FIRST}} = firstRop форматом «pib, posLower;\n…;» (виходять сьогодні).
+  //   * hasRop auto = firstRop.length > 0 — блок ударно-пошукових дій активується
+  //     якщо є хто залучається. v1.6.0 hardcoded false — тепер data-driven.
+  const ropList = continuingRop.length === 0
+    ? ''
+    : continuingRop
+        .map((s) => pibToDocumentFormat(s.fullName, s.rankName))
+        .join(', ')
+
+  const lowerFirst = (s: string): string =>
+    s.length === 0 ? '' : s[0].toLowerCase() + s.slice(1)
+  const ropFirstText = firstRop.length === 0
+    ? ''
+    : firstRop
+        .map((s) => {
+          const pos = lowerFirst((s.positionTitle ?? '').trim())
+          return `${pibToDocumentFormat(s.fullName, s.rankName)}, ${pos}`
+        })
+        .join(';\n') + ';'
 
   const renderData: Record<string, string | boolean> = {
     dispositionNumber,
@@ -325,8 +368,8 @@ export function renderDispositionBuffer(
     'дата_бр': brBatDate,
     'КСП_РОТИ': ksp,
     'населений_пункт': settlement,
-    hasRop: false, // MVP: без ударно-пошукового ROP-блоку. v1.6.2 — UI селектор.
-    ROP_FIRST: '',
+    hasRop: firstRop.length > 0,
+    ROP_FIRST: ropFirstText,
     ROP: ropList,
     ackListXml,
     ...roleTexts
