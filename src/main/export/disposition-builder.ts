@@ -120,15 +120,20 @@ function pibToDocumentFormat(fullName: string, rank: string | null): string {
 
 /**
  * Формат для АРКУША ДОВЕДЕННЯ:
- * «звання____________________Ім'я ПРІЗВИЩЕ» (20 підкреслень для підпису).
+ * «звання____________________Ім'я ПРІЗВИЩЕ» (20 підкреслень для підпису).
  * 1-в-1 з Alvares-AI/br_updater.py:pib_to_table_format.
+ *
+ * v1.6.1 hotfix: між ім'ям і прізвищем — non-breaking space (U+00A0). Параграф
+ * `{{ACK_LIST}}` у шаблоні має `<w:jc w:val="both"/>` (full justify), і
+ * Word розпирав звичайний пробіл між частинами імені на всю ширину сторінки.
+ * NBSP — unbreakable token: justify не може його стрейчити.
  */
 function pibToAckFormat(fullName: string, rank: string | null): string {
   const parts = fullName.trim().split(/\s+/)
   const namePart =
     parts.length < 2
       ? fullName.toUpperCase()
-      : `${parts[1]} ${parts[0].toUpperCase()}`
+      : `${parts[1]} ${parts[0].toUpperCase()}`
   const rankPart = rank?.trim() ?? ''
   // 20 underscores — місце для рукописного підпису.
   return `${rankPart}____________________${namePart}`
