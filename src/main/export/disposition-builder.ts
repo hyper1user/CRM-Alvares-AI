@@ -10,12 +10,20 @@
  * backward compat single-day). Batch-генерація на період викликає
  * `renderDispositionBuffer()` напряму у циклі — без повторних діалогів.
  *
- * MVP-обмеження (розширення в v1.6.1+):
+ * v1.6.1 hotfix#2: ACK_LIST через raw XML (`{{@ackListXml}}` у шаблоні).
+ * docxtemplater з `linebreaks:true` обробляє лише `\n` (як `<w:br/>`),
+ * але НЕ `\t` — tab залишався literal 0x09 у `<w:t>` і Word не активував
+ * tab-stop+leader. Через `@`-prefix вставляємо повний `<w:p>` з runs +
+ * `<w:tab/>` + `<w:br/>` напряму; шаблон має параграфський tab-stop
+ * right=10205 з `w:leader="underscore"` — Word заповнить підкресленнями
+ * від rank до 10205 і right-align'не name+SURNAME автоматично.
+ *
+ * MVP-обмеження (розширення в v1.6.2+):
  *   * Auto-assign ролей за посадою (через `autoAssignRole()` з
  *     br-roles.ts) — юзерського override через UI поки немає.
  *   * ROP-блок (умовний `{{#hasRop}}...{{/hasRop}}`) — за замовчуванням
  *     прихований; юзер додає вручну в Word'і. Alvares-AI має селектор
- *     ROP1/ROP2/.../ROP_FIRST — додамо у v1.6.1+.
+ *     ROP1/ROP2/.../ROP_FIRST — додамо у v1.6.2+.
  *
  * Що автоматично:
  *   * Номер БР роти — `getBrNumber(executionDate)` (doy формула з v1.5.0).
@@ -118,25 +126,52 @@ function pibToDocumentFormat(fullName: string, rank: string | null): string {
   return rank?.trim() ? `${rank.trim()} ${formatted}` : formatted
 }
 
+/** XML-escape для безпеки у `<w:t>` (`<`, `>`, `&`). */
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Properties для одного `<w:r>` в ACK list — Times New Roman. */
+const ACK_RUN_RPR =
+  '<w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Calibri" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr>'
+
+/** Properties для зовнішнього `<w:p>` ACK list — копія з шаблону. */
+const ACK_PARA_PPR =
+  '<w:pPr>' +
+  '<w:tabs><w:tab w:val="right" w:leader="underscore" w:pos="10205"/></w:tabs>' +
+  '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>' +
+  '<w:contextualSpacing/>' +
+  '<w:jc w:val="both"/>' +
+  '<w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Calibri" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr>' +
+  '</w:pPr>'
+
 /**
- * Формат для АРКУША ДОВЕДЕННЯ:
- * «звання____________________Ім'я ПРІЗВИЩЕ» (20 підкреслень для підпису).
- * 1-в-1 з Alvares-AI/br_updater.py:pib_to_table_format.
+ * Формує raw OOXML для АРКУША ДОВЕДЕННЯ (`{{@ackListXml}}` у шаблоні).
+ * Кожен боєць — три runs: «звання», `<w:tab/>`, «Ім'я ПРІЗВИЩЕ».
+ * Рядки розділені `<w:br/>` всередині одного `<w:p>`.
  *
- * v1.6.1 hotfix: між ім'ям і прізвищем — non-breaking space (U+00A0). Параграф
- * `{{ACK_LIST}}` у шаблоні має `<w:jc w:val="both"/>` (full justify), і
- * Word розпирав звичайний пробіл між частинами імені на всю ширину сторінки.
- * NBSP — unbreakable token: justify не може його стрейчити.
+ * pPr/rPr — копії з шаблону disposition-template.docx. Якщо шаблон зміниться
+ * (інший шрифт чи tab позиція) — синхронізувати константи вище.
  */
-function pibToAckFormat(fullName: string, rank: string | null): string {
-  const parts = fullName.trim().split(/\s+/)
-  const namePart =
-    parts.length < 2
-      ? fullName.toUpperCase()
-      : `${parts[1]} ${parts[0].toUpperCase()}`
-  const rankPart = rank?.trim() ?? ''
-  // 20 underscores — місце для рукописного підпису.
-  return `${rankPart}____________________${namePart}`
+function buildAckListXml(
+  rows: Array<{ fullName: string; rankName: string | null }>
+): string {
+  const lines = rows
+    .map((r) => {
+      const parts = r.fullName.trim().split(/\s+/)
+      const namePart =
+        parts.length < 2
+          ? r.fullName.toUpperCase()
+          : `${parts[1]} ${parts[0].toUpperCase()}`
+      const rankPart = r.rankName?.trim() ?? ''
+      return (
+        `<w:r>${ACK_RUN_RPR}<w:t xml:space="preserve">${escapeXml(rankPart)}</w:t></w:r>` +
+        `<w:r>${ACK_RUN_RPR}<w:tab/></w:r>` +
+        `<w:r>${ACK_RUN_RPR}<w:t xml:space="preserve">${escapeXml(namePart)}</w:t></w:r>`
+      )
+    })
+    .join(`<w:r>${ACK_RUN_RPR}<w:br/></w:r>`)
+  return `<w:p>${ACK_PARA_PPR}${lines}</w:p>`
 }
 
 function resolveResourcePath(relPath: string): string | null {
@@ -242,7 +277,6 @@ export function renderDispositionBuffer(
   // 3. Формуємо текст для кожного {{ROLE_*}} плейсхолдера.
   // v1.6.0 hotfix: розділювач — `, ` (кома з пробілом), не \n. Так у
   // Alvares-AI: всі ОС однієї ролі в одному параграфі через коми.
-  // Це і чистіше виглядає у Word'і, і відповідає еталонному рапорту.
   const formatList = (soldiers: SoldierForBr[], emptyMarker = '—'): string =>
     soldiers.length === 0
       ? emptyMarker
@@ -257,14 +291,10 @@ export function renderDispositionBuffer(
   const locationsPath = resolveResourcePath('br/locations.md') ?? ''
   const { settlement, ksp } = getLocationForDate(locationsPath, executionDate)
 
-  // 5. ACK_LIST — повний список усіх бійців у форматі для АРКУША ДОВЕДЕННЯ
-  // («звання____________________Ім'я ПРІЗВИЩЕ»). Кожен ОС у власному
-  // рядку через `\n` — docxtemplater з linebreaks:true перетворить це
-  // на <w:br/> всередині одного параграфа (візуально як окремі рядки
-  // у Word'і). Те саме поведінка, що в Alvares-AI.
-  const ackList = rows
-    .map((r) => pibToAckFormat(r.fullName, r.rankName))
-    .join('\n')
+  // 5. ACK_LIST — повний XML через `{{@ackListXml}}` (raw insertion). Це
+  // повний `<w:p>` з runs + `<w:tab/>` для leader-underscore tab-stop'у
+  // шаблону.
+  const ackListXml = buildAckListXml(rows)
 
   // 6. Формула БР роти.
   const dispositionFull = getBrNumber(executionDate) // "№91 від 31.03.2026"
@@ -273,8 +303,7 @@ export function renderDispositionBuffer(
   const dispositionDate = dispositionMatch ? dispositionMatch[2] : ''
 
   // 7. Render. Шаблон використовує custom delimiters {{...}} (jinja-style),
-  // бо так зроблено в оригіналі Alvares-AI; transform-disposition-template.cjs
-  // лише замінив <<...>> на {{...}} і {{IF_ROP}} на {{#hasRop}}.
+  // бо так зроблено в оригіналі Alvares-AI.
   const buf = readFileSync(templatePath)
   const zip = new PizZip(buf)
   const doc = new Docxtemplater(zip, {
@@ -284,10 +313,8 @@ export function renderDispositionBuffer(
     nullGetter: () => ''
   })
 
-  // v1.6.0 hotfix: ROP — це список ОС на позиціях (не ROP.txt-фраза, як
-  // я раніше помилково вважав). Беруться бійці з 100/роп що НЕ потрапили
-  // у жодну з 14 «робочих» ролей через auto-assign — тобто ті, чия посада
-  // не дала ключового слова. Через коми.
+  // v1.6.0 hotfix: ROP — список ОС на позиціях (не ROP.txt-фраза). Беруться
+  // бійці з 100/роп що НЕ потрапили у жодну з ролей. Через коми.
   const ropList = formatList(positionPool, '')
 
   const renderData: Record<string, string | boolean> = {
@@ -298,10 +325,10 @@ export function renderDispositionBuffer(
     'дата_бр': brBatDate,
     'КСП_РОТИ': ksp,
     'населений_пункт': settlement,
-    hasRop: false, // MVP: без ударно-пошукового ROP-блоку. v1.6.1 — UI селектор.
+    hasRop: false, // MVP: без ударно-пошукового ROP-блоку. v1.6.2 — UI селектор.
     ROP_FIRST: '',
-    ROP: ropList, // ОС на позиціях, не fраза з ROP.txt
-    ACK_LIST: ackList,
+    ROP: ropList,
+    ackListXml,
     ...roleTexts
   }
 
