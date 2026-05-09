@@ -10,14 +10,25 @@ import { eq, desc } from 'drizzle-orm'
 import { generateDocx, getTemplateTags, createMinimalDocx } from './docx-engine'
 import { buildDgvReport } from '../export/dgv-report-builder'
 import { buildConfirmationReport } from '../export/confirmation-builder'
-import { buildDispositionReport } from '../export/disposition-builder'
+import {
+  buildDispositionReport,
+  renderDispositionBuffer,
+  buildDispositionFilename
+} from '../export/disposition-builder'
+import {
+  BR_BAT_XLSX_PATH,
+  parseBrBatXlsx,
+  formatBrNumbers
+} from '../export/br-bat-parser'
+import { dialog } from 'electron'
 import type {
   DocumentTemplate,
   GeneratedDocument,
   GenerateDocumentRequest,
   GeneratedDocumentListItem,
   DocumentListFilters,
-  TemplateCategory
+  TemplateCategory,
+  BatchGenerationResult
 } from '@shared/types/document'
 
 // Paths
@@ -636,20 +647,28 @@ export async function generateConfirmationDocument(
 }
 
 /**
- * v1.6.0: Special-case generator для шаблону templateType='docx_disposition'.
+ * v1.6.0/v1.6.1: Special-case generator для шаблону templateType='docx_disposition'.
  *
- * Очікує request.fields = {
- *   executionDate: '2026-05-05'  (ISO дата виконання БР),
- *   brBatNumber: '78'             (номер БР командира 4 ШБ),
- *   brBatDate: '04.05.2026'       (дата БР командира 4 ШБ)
- * }
+ * v1.6.1: BR командира 4 ШБ читається з зовнішнього xlsx-довідника
+ * BR_BAT_XLSX_PATH (=`D:\Project_CRM\BR_4ShB.xlsx`). UI більше не питає
+ * brBatNumber/brBatDate — це завжди lookup-by-date.
  *
- * Auto-assign 15 ролей за посадою + lookup КСП/н.п. за датою.
- * MVP: без ROP-блоку (юзер додає вручну в Word). UI селектора ROP — v1.6.1.
+ * Single-day режим (RangePicker [today, today]):
+ *   request.fields = { executionDateFrom: ISO, executionDateTo: <same> }
+ *   → showSaveDialog. Якщо для дати немає запису у xlsx — throw error.
+ *
+ * Period режим (RangePicker [from, to], to > from):
+ *   request.fields = { executionDateFrom: ISO, executionDateTo: ISO }
+ *   → showOpenDialog для папки. Loop по днях, lookup у xlsx; якщо немає —
+ *   skip і додаємо до `skippedDays`. Multi-BR на день об'єднуються через
+ *   `; ` (formatBrNumbers).
+ *
+ * v1.6.0 backward compat: legacy `executionDate` (single field) ще
+ * приймається як аліас для From=To.
  */
 export async function generateDispositionDocument(
   request: GenerateDocumentRequest
-): Promise<GeneratedDocument | { canceled: true }> {
+): Promise<GeneratedDocument | BatchGenerationResult | { canceled: true }> {
   const db = getDatabase()
 
   const tmpl = db
@@ -666,58 +685,179 @@ export async function generateDispositionDocument(
     throw new Error(`Template file not found: ${tmpl.filePath}`)
   }
 
-  const isoDate = request.fields?.executionDate ?? ''
-  const brBatNumber = request.fields?.brBatNumber ?? ''
-  const brBatDate = request.fields?.brBatDate ?? ''
+  // Період — обов'язково з v1.6.1; backward compat для legacy executionDate.
+  const isoFrom =
+    request.fields?.executionDateFrom ?? request.fields?.executionDate ?? ''
+  const isoTo =
+    request.fields?.executionDateTo ?? request.fields?.executionDate ?? ''
 
-  const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) {
-    throw new Error(`Invalid executionDate (expected YYYY-MM-DD): ${isoDate}`)
+  const dateRe = /^(\d{4})-(\d{2})-(\d{2})$/
+  const mFrom = isoFrom.match(dateRe)
+  const mTo = isoTo.match(dateRe)
+  if (!mFrom || !mTo) {
+    throw new Error(
+      `Invalid executionDateFrom/To (expected YYYY-MM-DD): ${isoFrom} / ${isoTo}`
+    )
   }
-  const executionDate = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))
-
-  const result = await buildDispositionReport(executionDate, brBatNumber, brBatDate, tmpl.filePath)
-  if (!result.success || !result.filePath) {
-    return { canceled: true }
+  const dateFrom = new Date(
+    parseInt(mFrom[1], 10),
+    parseInt(mFrom[2], 10) - 1,
+    parseInt(mFrom[3], 10)
+  )
+  const dateTo = new Date(
+    parseInt(mTo[1], 10),
+    parseInt(mTo[2], 10) - 1,
+    parseInt(mTo[3], 10)
+  )
+  if (dateFrom.getTime() > dateTo.getTime()) {
+    throw new Error('executionDateFrom must be ≤ executionDateTo')
   }
 
-  const dbResult = db
-    .insert(generatedDocuments)
-    .values({
+  // Lookup-by-date з зовнішнього xlsx (один раз на запит — для single і period).
+  const brBatMap = parseBrBatXlsx(BR_BAT_XLSX_PATH)
+  if (brBatMap.size === 0) {
+    throw new Error(
+      `Не вдалося прочитати ${BR_BAT_XLSX_PATH} (файл відсутній або порожній)`
+    )
+  }
+
+  // Single-day режим (період = 1 день): showSaveDialog, з xlsx-lookup.
+  // Якщо в xlsx немає запису для дати — throw error (UI покаже повідомлення;
+  // юзер додає рядок у BR_4ShB.xlsx і повторює).
+  if (isoFrom === isoTo) {
+    const entry = brBatMap.get(isoFrom)
+    if (!entry) {
+      throw new Error(
+        `У BR_4ShB.xlsx немає запису для дати ${isoFrom.split('-').reverse().join('.')}. Додай рядок у файл і повтори.`
+      )
+    }
+    const result = await buildDispositionReport(
+      dateFrom,
+      formatBrNumbers(entry),
+      entry.date,
+      tmpl.filePath
+    )
+    if (!result.success || !result.filePath) {
+      return { canceled: true }
+    }
+
+    const dbResult = db
+      .insert(generatedDocuments)
+      .values({
+        templateId: tmpl.id,
+        documentType: tmpl.templateType,
+        title: request.title,
+        personnelIds: null,
+        filePath: result.filePath
+      })
+      .run()
+    const docId = Number(dbResult.lastInsertRowid)
+
+    db.insert(auditLog)
+      .values({
+        tableName: 'generated_documents',
+        recordId: docId,
+        action: 'generate',
+        newValues: JSON.stringify({
+          templateId: tmpl.id,
+          templateType: tmpl.templateType,
+          title: request.title,
+          filePath: result.filePath,
+          executionDate: isoFrom,
+          brBatNumber: formatBrNumbers(entry),
+          brBatDate: entry.date
+        })
+      })
+      .run()
+
+    return {
+      id: docId,
       templateId: tmpl.id,
       documentType: tmpl.templateType,
       title: request.title,
       personnelIds: null,
-      filePath: result.filePath
-    })
-    .run()
-  const docId = Number(dbResult.lastInsertRowid)
+      filePath: result.filePath,
+      generatedAt: new Date().toISOString()
+    }
+  }
 
-  db.insert(auditLog)
-    .values({
-      tableName: 'generated_documents',
-      recordId: docId,
-      action: 'generate',
-      newValues: JSON.stringify({
+  // Period режим: showOpenDialog для папки + loop.
+  const folderResult = await dialog.showOpenDialog({
+    title: 'Оберіть папку для збереження пакета БР',
+    properties: ['openDirectory', 'createDirectory']
+  })
+  if (folderResult.canceled || folderResult.filePaths.length === 0) {
+    return { canceled: true }
+  }
+  const dirPath = folderResult.filePaths[0]
+
+  const skippedDays: string[] = []
+  const ids: number[] = []
+
+  for (
+    let cursor = new Date(dateFrom);
+    cursor.getTime() <= dateTo.getTime();
+    cursor.setDate(cursor.getDate() + 1)
+  ) {
+    const yyyy = cursor.getFullYear()
+    const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+    const dd = String(cursor.getDate()).padStart(2, '0')
+    const isoCursor = `${yyyy}-${mm}-${dd}`
+
+    const entry = brBatMap.get(isoCursor)
+    if (!entry) {
+      skippedDays.push(isoCursor)
+      continue
+    }
+
+    const rendered = renderDispositionBuffer(
+      new Date(cursor),
+      formatBrNumbers(entry),
+      entry.date,
+      tmpl.filePath
+    )
+    const filename = buildDispositionFilename(rendered)
+    const filePath = join(dirPath, filename)
+    writeFileSync(filePath, rendered.buffer)
+
+    const dbResult = db
+      .insert(generatedDocuments)
+      .values({
         templateId: tmpl.id,
-        templateType: tmpl.templateType,
-        title: request.title,
-        filePath: result.filePath,
-        executionDate: isoDate,
-        brBatNumber,
-        brBatDate
+        documentType: tmpl.templateType,
+        title: `${request.title} — ${dd}.${mm}.${yyyy}`,
+        personnelIds: null,
+        filePath
       })
-    })
-    .run()
+      .run()
+    const docId = Number(dbResult.lastInsertRowid)
+    ids.push(docId)
+
+    db.insert(auditLog)
+      .values({
+        tableName: 'generated_documents',
+        recordId: docId,
+        action: 'generate',
+        newValues: JSON.stringify({
+          templateId: tmpl.id,
+          templateType: tmpl.templateType,
+          title: request.title,
+          filePath,
+          executionDate: isoCursor,
+          brBatNumber: formatBrNumbers(entry),
+          brBatDate: entry.date,
+          batch: true
+        })
+      })
+      .run()
+  }
 
   return {
-    id: docId,
-    templateId: tmpl.id,
-    documentType: tmpl.templateType,
-    title: request.title,
-    personnelIds: null,
-    filePath: result.filePath,
-    generatedAt: new Date().toISOString()
+    type: 'batch',
+    count: ids.length,
+    skippedDays,
+    dirPath,
+    ids
   }
 }
 

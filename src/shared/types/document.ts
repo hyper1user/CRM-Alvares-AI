@@ -123,6 +123,22 @@ export interface GeneratedDocument {
   generatedAt: string
 }
 
+/**
+ * v1.6.1: результат batch-генерації Бойових розпоряджень на період
+ * (RangePicker у Generator'і). N записів у generated_documents,
+ * один директорій, список пропущених днів (немає БР батальйону у xlsx).
+ */
+export interface BatchGenerationResult {
+  type: 'batch'
+  count: number
+  /** ISO дати днів, для яких не знайшлось БР батальйону у xlsx. */
+  skippedDays: string[]
+  /** Папка, у яку збережено всі файли. */
+  dirPath: string
+  /** ID створених записів у generated_documents. */
+  ids: number[]
+}
+
 export interface GenerateDocumentRequest {
   templateId: number
   title: string

@@ -5,13 +5,17 @@
  * dodatky_parser.py. Базується на шаблоні `resources/templates/
  * disposition-template.docx` (трансформованому з Variant_A).
  *
- * MVP-обмеження (розширення в v1.6.1):
- *   * Одна дата виконання (період → масова генерація потім).
+ * v1.6.1: rendering розділений на pure `renderDispositionBuffer()` (без I/O
+ * на save) + обгортку `buildDispositionReport()` (зі save-dialog для
+ * backward compat single-day). Batch-генерація на період викликає
+ * `renderDispositionBuffer()` напряму у циклі — без повторних діалогів.
+ *
+ * MVP-обмеження (розширення в v1.6.1+):
  *   * Auto-assign ролей за посадою (через `autoAssignRole()` з
  *     br-roles.ts) — юзерського override через UI поки немає.
  *   * ROP-блок (умовний `{{#hasRop}}...{{/hasRop}}`) — за замовчуванням
  *     прихований; юзер додає вручну в Word'і. Alvares-AI має селектор
- *     ROP1/ROP2/.../ROP_FIRST — додамо у v1.6.1.
+ *     ROP1/ROP2/.../ROP_FIRST — додамо у v1.6.1+.
  *
  * Що автоматично:
  *   * Номер БР роти — `getBrNumber(executionDate)` (doy формула з v1.5.0).
@@ -141,12 +145,29 @@ function resolveResourcePath(relPath: string): string | null {
   return null
 }
 
-export async function buildDispositionReport(
+export interface RenderedDisposition {
+  buffer: Buffer
+  /** Номер БР роти (без префіксу № і дати), для іменування файлу. */
+  dispositionNumber: string
+  /** Дата БР роти (DD.MM.YYYY), для іменування файлу. */
+  dispositionDate: string
+}
+
+/**
+ * Pure rendering — синхронно читає БД (на день) та шаблон, рендерить .docx,
+ * повертає буфер + метадані для іменування файлу. Без I/O на save.
+ *
+ * Викликається у двох контекстах:
+ * 1. Single-day через `buildDispositionReport()` → showSaveDialog.
+ * 2. Period (v1.6.1) через `generateDispositionDocument()` → loop по днях,
+ *    запис у вибрану папку.
+ */
+export function renderDispositionBuffer(
   executionDate: Date,
   brBatNumber: string,
   brBatDate: string,
   templatePath: string
-): Promise<{ success: boolean; filePath: string; error?: string }> {
+): RenderedDisposition {
   const db = getDatabase()
   const isoDate = `${executionDate.getFullYear()}-${String(executionDate.getMonth() + 1).padStart(2, '0')}-${String(executionDate.getDate()).padStart(2, '0')}`
 
@@ -274,16 +295,37 @@ export async function buildDispositionReport(
     'населений_пункт': settlement,
     hasRop: false, // MVP: без ударно-пошукового ROP-блоку. v1.6.1 — UI селектор.
     ROP_FIRST: '',
-    ROP: ropList, // ОС на позиціях, не fraза з ROP.txt
+    ROP: ropList, // ОС на позиціях, не fраза з ROP.txt
     ACK_LIST: ackList,
     ...roleTexts
   }
 
   doc.render(renderData)
-  const out = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
+  const buffer = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
+  return { buffer, dispositionNumber, dispositionDate }
+}
 
-  // 8. Save dialog.
-  const fileLabel = `БР_№${dispositionNumber}_${dispositionDate.replace(/\./g, '-')}`
+/**
+ * Ім'я файлу для збереження: `БР_№<num>_<DD-MM-YYYY>.docx`.
+ * Експортується для batch-логіки у IPC handler'і (v1.6.1).
+ */
+export function buildDispositionFilename(rendered: RenderedDisposition): string {
+  return `БР_№${rendered.dispositionNumber}_${rendered.dispositionDate.replace(/\./g, '-')}.docx`
+}
+
+/**
+ * Single-day обгортка зі save-dialog. Викликається IPC handler'ом коли
+ * період = 1 день (RangePicker [today, today]).
+ */
+export async function buildDispositionReport(
+  executionDate: Date,
+  brBatNumber: string,
+  brBatDate: string,
+  templatePath: string
+): Promise<{ success: boolean; filePath: string; error?: string }> {
+  const rendered = renderDispositionBuffer(executionDate, brBatNumber, brBatDate, templatePath)
+  const fileLabel = buildDispositionFilename(rendered).replace(/\.docx$/, '')
+
   const result = await dialog.showSaveDialog({
     title: 'Зберегти Бойове розпорядження',
     defaultPath: `${fileLabel}.docx`,
@@ -292,6 +334,6 @@ export async function buildDispositionReport(
   if (result.canceled || !result.filePath) {
     return { success: false, filePath: '' }
   }
-  writeFileSync(result.filePath, out)
+  writeFileSync(result.filePath, rendered.buffer)
   return { success: true, filePath: result.filePath }
 }

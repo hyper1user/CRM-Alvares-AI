@@ -38,8 +38,11 @@ import TemplateFieldsForm from '@renderer/components/documents/TemplateFieldsFor
 import type {
   DocumentTemplate,
   GeneratedDocument,
+  BatchGenerationResult,
   TemplateCategory
 } from '@shared/types/document'
+
+const { RangePicker } = DatePicker
 
 const { Title, Text } = Typography
 
@@ -83,11 +86,14 @@ export default function DocumentGenerator(): JSX.Element {
   const [tags, setTags] = useState<string[]>([])
   const [tagsLoading, setTagsLoading] = useState(false)
   const [personnelId, setPersonnelId] = useState<number | undefined>()
-  // v1.4.0: для xlsx_dgv — окремий state для періоду (рік+місяць).
-  // Default — поточний місяць; юзер може змінити перед генерацією.
+  // v1.4.0: для xlsx_dgv/docx_confirmation — single Dayjs (місяць).
+  // v1.6.0/v1.6.1: для docx_disposition — кортеж [from, to] (RangePicker).
+  // Default — [today, today]; для month-picker'а використовуємо лише .
   const [period, setPeriod] = useState<Dayjs>(() => dayjs())
+  const [periodRange, setPeriodRange] = useState<[Dayjs, Dayjs]>(() => [dayjs(), dayjs()])
   const [generating, setGenerating] = useState(false)
   const [result, setResult] = useState<GeneratedDocument | null>(null)
+  const [batchResult, setBatchResult] = useState<BatchGenerationResult | null>(null)
   const [form] = Form.useForm()
 
   const isXlsxDgv = selectedTemplate?.templateType === 'xlsx_dgv'
@@ -124,7 +130,9 @@ export default function DocumentGenerator(): JSX.Element {
     setSelectedTemplate(tmpl)
     setPersonnelId(undefined)
     setResult(null)
+    setBatchResult(null)
     setPeriod(dayjs())
+    setPeriodRange([dayjs(), dayjs()])
     form.resetFields()
     setCurrent(1)
   }
@@ -133,18 +141,23 @@ export default function DocumentGenerator(): JSX.Element {
     if (!selectedTemplate) return
     setGenerating(true)
     try {
-      // v1.6.0: гілка для disposition (день + номер БР батальйону).
+      // v1.6.0/v1.6.1: гілка для disposition.
+      // RangePicker [from, to] → executionDateFrom/To. BR батальйону читається
+      // на бекенді з BR_4ShB.xlsx (більше не запитуємо в UI).
       if (isDocxDisposition) {
         const values = await form.validateFields()
-        const fields = {
-          executionDate: period.format('YYYY-MM-DD'),
-          brBatNumber: String(values.brBatNumber ?? ''),
-          brBatDate: String(values.brBatDate ?? '')
-        }
+        const [from, to] = periodRange
+        const isSamDay = from.isSame(to, 'day')
+        const titleFallback = isSamDay
+          ? `Бойове розпорядження ${from.format('DD.MM.YYYY')}`
+          : `Бойові розпорядження ${from.format('DD.MM')}–${to.format('DD.MM.YYYY')}`
         const data = {
           templateId: selectedTemplate.id,
-          title: values.title || `Бойове розпорядження ${period.format('DD.MM.YYYY')}`,
-          fields
+          title: values.title || titleFallback,
+          fields: {
+            executionDateFrom: from.format('YYYY-MM-DD'),
+            executionDateTo: to.format('YYYY-MM-DD')
+          }
         }
         const response = await window.api.documentsGenerateDisposition(data)
         if (response?.canceled) {
@@ -153,6 +166,16 @@ export default function DocumentGenerator(): JSX.Element {
         }
         if (response?.error) {
           message.error(response.message ?? 'Помилка генерації')
+          return
+        }
+        // v1.6.1: batch-режим повертає {type:'batch', count, skippedDays, dirPath, ids}.
+        if (response && 'type' in response && response.type === 'batch') {
+          setBatchResult(response)
+          setCurrent(3)
+          const skippedNote = response.skippedDays.length
+            ? ` Пропущено: ${response.skippedDays.length}.`
+            : ''
+          message.success(`Згенеровано ${response.count} БР.${skippedNote}`)
           return
         }
         setResult(response)
@@ -220,6 +243,11 @@ export default function DocumentGenerator(): JSX.Element {
   }
 
   const handleOpenFile = async (): Promise<void> => {
+    if (batchResult?.dirPath) {
+      // v1.6.1: для batch — відкриваємо папку (Explorer), не один файл.
+      await window.api.documentsOpen(batchResult.dirPath)
+      return
+    }
     if (result?.filePath) {
       await window.api.documentsOpen(result.filePath)
     }
@@ -231,7 +259,9 @@ export default function DocumentGenerator(): JSX.Element {
     setTags([])
     setPersonnelId(undefined)
     setPeriod(dayjs())
+    setPeriodRange([dayjs(), dayjs()])
     setResult(null)
+    setBatchResult(null)
     form.resetFields()
   }
 
@@ -313,44 +343,35 @@ export default function DocumentGenerator(): JSX.Element {
       {current === 1 && selectedTemplate && (
         <Card title={`${isSpecialPipeline ? (isDocxDisposition ? 'Параметри' : 'Період для') : 'Заповнення:'} ${selectedTemplate.name}`}>
           {isDocxDisposition ? (
-            // v1.6.0: спецUI для Розпорядження. День виконання + 2
-            // текстові поля (БР батальйону). Auto-assign ролей за посадою,
-            // КСП/н.п. lookup за датою — все на бекенді.
-            <Form form={form} layout="vertical" style={{ maxWidth: 480 }}>
+            // v1.6.1: RangePicker [from, to]. Single-day = вироджений
+            // випадок [today, today]. Поля БР батальйону прибрані —
+            // читаються з BR_4ShB.xlsx за датою. Period > 1 day → пакет
+            // .docx у вибрану папку. Single-day → save dialog як раніше.
+            <Form form={form} layout="vertical" style={{ maxWidth: 540 }}>
               <Form.Item
                 name="title"
                 label="Назва документа"
-                initialValue={`Бойове розпорядження ${period.format('DD.MM.YYYY')}`}
+                initialValue={
+                  periodRange[0].isSame(periodRange[1], 'day')
+                    ? `Бойове розпорядження ${periodRange[0].format('DD.MM.YYYY')}`
+                    : `Бойові розпорядження ${periodRange[0].format('DD.MM')}–${periodRange[1].format('DD.MM.YYYY')}`
+                }
               >
                 <Input placeholder="Назва для архіву" />
               </Form.Item>
 
-              <Form.Item label="День виконання БР">
-                <DatePicker
-                  value={period}
-                  onChange={(v) => v && setPeriod(v)}
+              <Form.Item label="Період виконання БР">
+                <RangePicker
+                  value={periodRange}
+                  onChange={(v) => {
+                    if (v && v[0] && v[1]) setPeriodRange([v[0], v[1]])
+                  }}
                   locale={locale}
                   format="DD.MM.YYYY"
                   style={{ width: '100%' }}
                   suffixIcon={<CalendarOutlined />}
                   allowClear={false}
                 />
-              </Form.Item>
-
-              <Form.Item
-                name="brBatNumber"
-                label="Номер БР командира 4 ШБ"
-                rules={[{ required: true, message: 'Введіть номер' }]}
-              >
-                <Input placeholder="78" />
-              </Form.Item>
-
-              <Form.Item
-                name="brBatDate"
-                label="Дата БР командира 4 ШБ"
-                rules={[{ required: true, message: 'Формат DD.MM.YYYY' }]}
-              >
-                <Input placeholder="04.05.2026" />
               </Form.Item>
 
               <div
@@ -363,9 +384,12 @@ export default function DocumentGenerator(): JSX.Element {
                   color: 'var(--fg-3)'
                 }}
               >
-                Номер БР роти й дата (<code>{period.subtract(1, 'day').format('DD.MM.YYYY')}</code>) генеруються автоматично за формулою <code>№doy від (D-1)</code>.
-                ОС у 15 ролях розкладається auto-assign'ом за посадою (заступник→ZKR, медик→MEDIC тощо).
-                КСП роти й населений пункт — lookup за датою з довідника локацій. ROP-блок MVP <b>прихований</b>; вставиш вручну в Word після генерації (v1.6.1 додасть селектор ROP1..ROP4).
+                <b>БР командира 4 ШБ</b> читається з зовнішнього довідника <code>D:\Project_CRM\BR_4ShB.xlsx</code> за датою (multi-BR на день автоматично об'єднуються через <code>; </code>).
+                Якщо для дня немає запису — він пропускається (для періоду) або видається помилка (для одного дня).
+                <br /><br />
+                Номер і дата БР роти генеруються автоматично за формулою <code>№doy від (D-1)</code>.
+                ОС у 15 ролях розкладаються за <i>персистентними</i> ролями з адмінки <code>/settings/br-roles</code> (РОП-бійці завжди йдуть у список ОС на позиціях, незалежно від ролі).
+                Період &gt; 1 день → пакет .docx у обрану папку.
               </div>
             </Form>
           ) : isMonthPicker ? (
@@ -468,7 +492,9 @@ export default function DocumentGenerator(): JSX.Element {
             <Text strong>Назва:</Text>{' '}
             {form.getFieldValue('title') ||
               (isDocxDisposition
-                ? `Бойове розпорядження ${period.format('DD.MM.YYYY')}`
+                ? periodRange[0].isSame(periodRange[1], 'day')
+                  ? `Бойове розпорядження ${periodRange[0].format('DD.MM.YYYY')}`
+                  : `Бойові розпорядження ${periodRange[0].format('DD.MM')}–${periodRange[1].format('DD.MM.YYYY')}`
                 : isMonthPicker
                   ? `${isXlsxDgv ? 'ДГВ-рапорт' : 'Підтвердження'} ${period.format('MMMM YYYY')}`
                   : selectedTemplate.name)}
@@ -476,11 +502,14 @@ export default function DocumentGenerator(): JSX.Element {
 
           {isDocxDisposition ? (
             <div style={{ marginBottom: 16 }}>
-              <Text strong>День виконання:</Text> {period.format('DD.MM.YYYY')}
-              <br />
-              <Text strong>БР батальйону:</Text> №{form.getFieldValue('brBatNumber')} від {form.getFieldValue('brBatDate')}
+              <Text strong>Період:</Text>{' '}
+              {periodRange[0].isSame(periodRange[1], 'day')
+                ? periodRange[0].format('DD.MM.YYYY')
+                : `${periodRange[0].format('DD.MM.YYYY')} – ${periodRange[1].format('DD.MM.YYYY')} (${periodRange[1].diff(periodRange[0], 'day') + 1} дн.)`}
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>
-                Натиснувши «Згенерувати», з'явиться діалог збереження. ROP-блок прихований у MVP — додай вручну в Word'і.
+                {periodRange[0].isSame(periodRange[1], 'day')
+                  ? 'Натиснувши «Згенерувати», з\'явиться діалог збереження одного файла.'
+                  : 'Натиснувши «Згенерувати», з\'явиться діалог вибору папки. Файли збережуться як БР_№X_DD-MM-YYYY.docx; дні без БР батальйону у xlsx будуть пропущені.'}
               </div>
             </div>
           ) : isMonthPicker ? (
@@ -524,8 +553,43 @@ export default function DocumentGenerator(): JSX.Element {
         </Card>
       )}
 
-      {/* Step 3: Result */}
-      {current === 3 && result && (
+      {/* Step 3: Result — single або batch */}
+      {current === 3 && batchResult && (
+        <Result
+          status={batchResult.skippedDays.length ? 'warning' : 'success'}
+          icon={<CheckCircleOutlined />}
+          title={`Згенеровано ${batchResult.count} БР у пакеті`}
+          subTitle={
+            <div>
+              <div>Папка: <Text code>{batchResult.dirPath}</Text></div>
+              {batchResult.skippedDays.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="warning">
+                    Пропущено {batchResult.skippedDays.length} дн. (немає БР батальйону у xlsx):
+                  </Text>{' '}
+                  {batchResult.skippedDays
+                    .map((d) => d.split('-').reverse().join('.'))
+                    .join(', ')}
+                </div>
+              )}
+            </div>
+          }
+          extra={[
+            <Button
+              key="open"
+              type="primary"
+              icon={<FolderOpenOutlined />}
+              onClick={handleOpenFile}
+            >
+              Відкрити папку
+            </Button>,
+            <Button key="new" onClick={handleReset}>
+              Створити новий
+            </Button>
+          ]}
+        />
+      )}
+      {current === 3 && !batchResult && result && (
         <Result
           status="success"
           icon={<CheckCircleOutlined />}
