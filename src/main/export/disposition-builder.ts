@@ -211,13 +211,18 @@ export function renderDispositionBuffer(
   const db = getDatabase()
   const isoDate = `${executionDate.getFullYear()}-${String(executionDate.getMonth() + 1).padStart(2, '0')}-${String(executionDate.getDate()).padStart(2, '0')}`
 
-  // 1. Беремо ОС з attendance × status_types на executionDate з кодами 100|роп.
+  // 1. Беремо ОС з attendance × status_types на executionDate.
+  // v1.6.3: discriminator — statusTypes.code (first-class бізнес-ключ),
+  // не dgvCode (payment metadata, який міг дрейфувати між версіями —
+  // у БД з v1.4.2 РОП-status має dgv_code='100'). WHERE містить OR
+  // по code='роп', щоб гарантовано захопити РОП-записи незалежно
+  // від dgvCode їхнього status_type.
   // Включаємо brRole — це визначає шлях розподілу:
-  //   * dgvCode='роп' → завжди в positionPool ({{ROP}}). Боєць фізично
+  //   * statusCode='роп' → завжди в positionPool ({{ROP}}). Боєць фізично
   //     на ЛБЗ, навіть якщо є призначена роль — у Розпорядженні він не
   //     виконує цю роль, він на позиції.
-  //   * dgvCode='100' AND brRole IS NOT NULL → відповідна {{ROLE_*}}.
-  //   * dgvCode='100' AND brRole IS NULL → positionPool (як non-assigned РВ).
+  //   * statusCode='100' AND brRole IS NOT NULL → відповідна {{ROLE_*}}.
+  //   * statusCode='100' AND brRole IS NULL → positionPool (як non-assigned РВ).
   const rows = db
     .select({
       personnelId: personnel.id,
@@ -225,7 +230,7 @@ export function renderDispositionBuffer(
       rankName: ranks.name,
       positionTitle: positions.title,
       positionIdx: personnel.currentPositionIdx,
-      dgvCode: statusTypes.dgvCode,
+      statusCode: statusTypes.code,
       brRole: personnel.brRole
     })
     .from(attendance)
@@ -237,7 +242,7 @@ export function renderDispositionBuffer(
       eq(attendance.date, isoDate),
       eq(personnel.status, 'active'),
       eq(personnel.currentSubdivision, 'Г-3'),
-      sql`${statusTypes.dgvCode} IN ('100', 'роп')`
+      sql`(${statusTypes.dgvCode} IN ('100', 'роп') OR ${statusTypes.code} = 'роп')`
     ))
     .orderBy(asc(personnel.currentPositionIdx))
     .all()
@@ -254,15 +259,16 @@ export function renderDispositionBuffer(
     .select({ personnelId: attendance.personnelId })
     .from(attendance)
     .innerJoin(statusTypes, eq(attendance.statusCode, statusTypes.code))
-    .where(and(eq(attendance.date, prevIsoDate), eq(statusTypes.dgvCode, 'роп')))
+    .where(and(eq(attendance.date, prevIsoDate), eq(statusTypes.code, 'роп')))
     .all()
   const prevRopSet = new Set<number>(prevRopRows.map((r) => r.personnelId))
 
-  // 2. Розподіл (v1.6.2): firstRop / continuingRop / byRole / positionPool.
-  //   * dgvCode='роп' AND prev day != роп → firstRop ({{ROP_FIRST}} + ACK_LIST)
-  //   * dgvCode='роп' AND prev day == роп → continuingRop ({{ROP}}, не у ACK)
-  //   * dgvCode='100' AND brRole valid → byRole (відповідний {{ROLE_*}} + ACK_LIST)
-  //   * dgvCode='100' AND brRole відсутня → positionPool (включається у {{ROP}} як
+  // 2. Розподіл (v1.6.3): firstRop / continuingRop / byRole / positionPool.
+  // Discriminator — statusCode (див. п.1 щодо migration з dgvCode).
+  //   * statusCode='роп' AND prev day != роп → firstRop ({{ROP_FIRST}} + ACK_LIST)
+  //   * statusCode='роп' AND prev day == роп → continuingRop ({{ROP}}, не у ACK)
+  //   * statusCode='100' AND brRole valid → byRole (відповідний {{ROLE_*}} + ACK_LIST)
+  //   * statusCode='100' AND brRole відсутня → positionPool (включається у {{ROP}} як
   //     fallback, бо у нашій моделі 100 без ролі — реальний кейс незаповненої
   //     адмінки. У Alvares-AI orphan concept не існує — там припускається що
   //     всім призначено ролі. Ця safety net — наша адаптація.).
@@ -281,7 +287,7 @@ export function renderDispositionBuffer(
       positionIdx: r.positionIdx
     }
 
-    if (r.dgvCode === 'роп') {
+    if (r.statusCode === 'роп') {
       if (prevRopSet.has(r.personnelId)) {
         continuingRop.push(soldier)
       } else {
@@ -290,7 +296,7 @@ export function renderDispositionBuffer(
       continue
     }
 
-    // dgvCode === '100': роль або orphan (positionPool fallback).
+    // statusCode === '100': роль або orphan (positionPool fallback).
     if (r.brRole && BR_ROLE_BY_NAME.has(r.brRole)) {
       byRole.get(r.brRole)!.push(soldier)
     } else {
@@ -319,7 +325,7 @@ export function renderDispositionBuffer(
   // БЕЗ continuingRop (вони вже доведені раніше). Раніше у v1.6.1 — всі rows.
   const continuingIds = new Set<number>()
   for (const r of rows) {
-    if (r.dgvCode === 'роп' && prevRopSet.has(r.personnelId)) {
+    if (r.statusCode === 'роп' && prevRopSet.has(r.personnelId)) {
       continuingIds.add(r.personnelId)
     }
   }

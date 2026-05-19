@@ -141,7 +141,14 @@ export async function buildConfirmationReport(
     .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
     .all()
 
-  // Attendance × status_types — той самий JOIN, що у dgv-report-builder
+  // Attendance × status_types — той самий JOIN, що у dgv-report-builder.
+  // v1.6.3 NB: тут discriminator — dgvCode, і це безпечно лише тому, що
+  // calculatePeriods нижче приймає масив ['100','роп'] як targetCode для
+  // pay_100-секції — тобто обидва значення дають одну категорію. Якщо
+  // колись доведеться РОЗРІЗНЯТИ '100' vs 'роп' у логіці confirmation —
+  // НЕ використовуйте dgvCode як discriminator (у БД з v1.4.2 РОП-status
+  // має dgv_code='100'), беріть statusTypes.code (як зроблено у
+  // disposition-builder.ts після регресії v1.6.2).
   const marksRows = db
     .select({
       personnelId: attendance.personnelId,
