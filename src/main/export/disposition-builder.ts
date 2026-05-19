@@ -258,18 +258,21 @@ export function renderDispositionBuffer(
     .all()
   const prevRopSet = new Set<number>(prevRopRows.map((r) => r.personnelId))
 
-  // 2. Розподіл (v1.6.2 Alvares-AI semantics): firstRop / continuingRop / byRole.
+  // 2. Розподіл (v1.6.2): firstRop / continuingRop / byRole / positionPool.
   //   * dgvCode='роп' AND prev day != роп → firstRop ({{ROP_FIRST}} + ACK_LIST)
   //   * dgvCode='роп' AND prev day == роп → continuingRop ({{ROP}}, не у ACK)
   //   * dgvCode='100' AND brRole valid → byRole (відповідний {{ROLE_*}} + ACK_LIST)
-  //   * dgvCode='100' AND brRole відсутня → orphan; не у byRole, але потрапляє у
-  //     ACK_LIST через `rows.filter(!continuing)` (warning-кейс — юзер не призначив).
+  //   * dgvCode='100' AND brRole відсутня → positionPool (включається у {{ROP}} як
+  //     fallback, бо у нашій моделі 100 без ролі — реальний кейс незаповненої
+  //     адмінки. У Alvares-AI orphan concept не існує — там припускається що
+  //     всім призначено ролі. Ця safety net — наша адаптація.).
   const byRole = new Map<string, SoldierForBr[]>()
   for (const role of BR_ROLES) {
     byRole.set(role.name, [])
   }
   const firstRop: SoldierForBr[] = []
   const continuingRop: SoldierForBr[] = []
+  const positionPool: SoldierForBr[] = [] // 100-orphans без brRole
   for (const r of rows) {
     const soldier: SoldierForBr = {
       fullName: r.fullName,
@@ -287,9 +290,11 @@ export function renderDispositionBuffer(
       continue
     }
 
-    // dgvCode === '100' AND brRole valid: у відповідну роль; інакше — orphan.
+    // dgvCode === '100': роль або orphan (positionPool fallback).
     if (r.brRole && BR_ROLE_BY_NAME.has(r.brRole)) {
       byRole.get(r.brRole)!.push(soldier)
+    } else {
+      positionPool.push(soldier)
     }
   }
 
@@ -338,14 +343,16 @@ export function renderDispositionBuffer(
     nullGetter: () => ''
   })
 
-  // v1.6.2: повна Alvares-AI семантика для ROP/ROP_FIRST.
-  //   * {{ROP}} = continuingRop через `, ` (бійці що другий+ день на позиції).
+  // v1.6.2: Alvares-AI семантика для ROP_FIRST/hasRop, з orphan-safety net у ROP.
+  //   * {{ROP}} = continuingRop + positionPool (100-orphans) через `, `. Continuing
+  //     — Alvares-AI strict, orphans — наш fallback для незаповненої адмінки.
   //   * {{ROP_FIRST}} = firstRop форматом «pib, posLower;\n…;» (виходять сьогодні).
   //   * hasRop auto = firstRop.length > 0 — блок ударно-пошукових дій активується
   //     якщо є хто залучається. v1.6.0 hardcoded false — тепер data-driven.
-  const ropList = continuingRop.length === 0
+  const ropAllOnPositions = [...continuingRop, ...positionPool]
+  const ropList = ropAllOnPositions.length === 0
     ? ''
-    : continuingRop
+    : ropAllOnPositions
         .map((s) => pibToDocumentFormat(s.fullName, s.rankName))
         .join(', ')
 
@@ -359,6 +366,17 @@ export function renderDispositionBuffer(
           return `${pibToDocumentFormat(s.fullName, s.rankName)}, ${pos}`
         })
         .join(';\n') + ';'
+
+  // v1.6.2 hotfix: diagnostic log для debugging порожніх плейсхолдерів.
+  // Видалити після ствердження стабільної роботи (v1.6.3).
+  console.log('[disposition]', isoDate, {
+    rowsCount: rows.length,
+    firstRop: firstRop.length,
+    continuingRop: continuingRop.length,
+    byRoleTotal: Array.from(byRole.values()).reduce((s, a) => s + a.length, 0),
+    positionPoolOrphans: positionPool.length,
+    prevRopSetSize: prevRopSet.size
+  })
 
   const renderData: Record<string, string | boolean> = {
     dispositionNumber,
