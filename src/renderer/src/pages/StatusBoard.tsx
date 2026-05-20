@@ -262,7 +262,7 @@ export default function StatusBoard(): JSX.Element {
           return (
             <div
               key={col.code}
-              className={`kanban-col col-c-${cat}${isDragOver ? ' drag-over' : ''}`}
+              className={`kanban-col alvares-kb-col col-c-${cat}${isDragOver ? ' drag-over over' : ''}`}
               onDragOver={(e) => handleDragOver(e, col.code)}
               onDragLeave={() => handleDragLeave(col.code)}
               onDrop={(e) => handleDrop(e, col.code)}
@@ -297,7 +297,7 @@ export default function StatusBoard(): JSX.Element {
                     <div
                       key={p.id}
                       className={
-                        'k-card' +
+                        'k-card alvares-kb-card' +
                         (draggingId === p.id ? ' dragging' : '') +
                         (inDisposition ? ' disposition' : '')
                       }

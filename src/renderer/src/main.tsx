@@ -10,6 +10,7 @@ import 'dayjs/locale/uk'
 import App from './App'
 import { useThemeMode, type ThemeMode } from './hooks/useTheme'
 import './assets/main.css'
+import './assets/animations.css'
 
 dayjs.locale('uk')
 

@@ -19,6 +19,7 @@ import { useStatisticsSummary, useStatisticsByStatus } from '../hooks/useStatist
 import { useMovementList } from '../hooks/useMovements'
 import { usePersonnelList } from '../hooks/usePersonnel'
 import { useLookups } from '../hooks/useLookups'
+import { useCountUp } from '../hooks/motion'
 import type { SubdivisionTreeNode } from '@shared/types/position'
 import { buildCompanyTree } from '@shared/utils/company-structure'
 
@@ -81,6 +82,7 @@ function KpiCard({
   title?: string
 }): JSX.Element {
   const clickable = typeof onClick === 'function'
+  const animated = useCountUp(value, 800)
   return (
     <div
       className={'card kpi-card' + (clickable ? ' clickable' : '')}
@@ -103,7 +105,7 @@ function KpiCard({
       <div className="kpi">
         <div className="label">{label}</div>
         <div className="value" style={accent ? { color: accent } : undefined}>
-          {value.toLocaleString('uk-UA')}
+          {animated.toLocaleString('uk-UA')}
         </div>
         {footnote && (
           <div

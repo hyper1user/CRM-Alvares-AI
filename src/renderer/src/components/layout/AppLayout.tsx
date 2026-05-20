@@ -215,6 +215,7 @@ export default function AppLayout(): JSX.Element {
         collapsedWidth={SIDEBAR_COLLAPSED_W}
         width={SIDEBAR_W}
         trigger={null}
+        className="alvares-sider"
         style={{
           height: '100vh',
           position: 'fixed',
@@ -430,6 +431,7 @@ export default function AppLayout(): JSX.Element {
           <Tooltip title={isDark ? 'Світла тема' : 'Темна тема'}>
             <button
               onClick={toggleTheme}
+              className="alvares-theme-toggle"
               style={{
                 width: 28,
                 height: 28,
@@ -438,11 +440,10 @@ export default function AppLayout(): JSX.Element {
                 background: 'transparent',
                 cursor: 'pointer',
                 color: 'var(--fg-2)',
-                display: 'grid',
-                placeItems: 'center',
               }}
             >
-              {isDark ? <SunOutlined /> : <MoonOutlined />}
+              <SunOutlined className="sun" />
+              <MoonOutlined className="moon" />
             </button>
           </Tooltip>
 

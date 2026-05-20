@@ -1,0 +1,327 @@
+/* ========================================================================
+   ALVARES AI — Motion System v1
+   Підключається після основних стилів (main.css / tokens).
+   Очікує наявність CSS-змінних: --bg-0..4, --line-1..2, --fg-0..3,
+   --accent, --accent-dim, --accent-line, --ok, --crit, --med, --info.
+   ======================================================================== */
+
+/* ---------- 0. Глобальні токени motion ---------- */
+:root {
+  --ease-out: cubic-bezier(.2,.7,.2,1);
+  --ease-in:  cubic-bezier(.55,0,.85,.35);
+  --ease-spring: cubic-bezier(.2,1.4,.4,1);
+  --t-fast: 120ms;
+  --t-base: 220ms;
+  --t-slow: 320ms;
+  --t-theme: 240ms;
+}
+
+/* Глобальний перехід кольорів при перемиканні теми.
+   Накладається на body / основні поверхні — НЕ на всі елементи. */
+body,
+.ant-layout,
+.ant-layout-sider,
+.ant-layout-header,
+.ant-layout-content,
+.ant-card,
+.ant-menu,
+.ant-table,
+.ant-input,
+.ant-btn {
+  transition:
+    background-color var(--t-theme) ease,
+    color var(--t-theme) ease,
+    border-color var(--t-theme) ease;
+}
+
+/* ---------- 1. SPLASH ---------- */
+.alvares-splash {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #0d0c0a;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.alvares-splash::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: var(--splash-banner, none);
+  background-size: cover; background-position: center;
+  opacity: 0; transform: scale(1.08); filter: saturate(0.85);
+  animation: splash-bg 1800ms ease-out forwards;
+}
+.alvares-splash::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 0%, rgba(13,12,10,.55) 55%, rgba(13,12,10,.95) 100%);
+  opacity: 0;
+  animation: splash-vignette 1800ms ease-out forwards;
+}
+@keyframes splash-bg {
+  0%   { opacity: 0; transform: scale(1.08); }
+  30%  { opacity: .22; }
+  85%  { opacity: .22; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+@keyframes splash-vignette {
+  0%, 85% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+.alvares-splash__stack {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+  opacity: 0;
+  animation: splash-stack 1800ms ease-out forwards;
+}
+@keyframes splash-stack {
+  0% { opacity: 0; }
+  18%, 85% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+.alvares-splash__shield {
+  width: 100px; height: 116px; object-fit: contain;
+  opacity: 0; transform: scale(.7);
+  filter: drop-shadow(0 6px 24px rgba(0,0,0,.55));
+  animation: splash-shield 900ms var(--ease-out) 80ms forwards;
+}
+@keyframes splash-shield {
+  0%   { opacity: 0; transform: scale(.7); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.alvares-splash__title {
+  font-size: 22px; font-weight: 600; letter-spacing: .04em;
+  color: oklch(.97 .005 80);
+  display: flex; gap: 5px; align-items: baseline;
+}
+.alvares-splash__title .ch {
+  display: inline-block; opacity: 0; transform: translateY(8px);
+  animation: splash-ch 400ms var(--ease-out) forwards;
+  animation-delay: calc(420ms + var(--i) * 35ms);
+}
+@keyframes splash-ch { to { opacity: 1; transform: translateY(0); } }
+.alvares-splash__title .ai {
+  font-family: var(--font-mono); font-size: 16px;
+  color: oklch(.80 .13 86); letter-spacing: .12em;
+}
+.alvares-splash__unit,
+.alvares-splash__bar,
+.alvares-splash__slogan { opacity: 0; }
+.alvares-splash__unit   { animation: splash-fade 400ms ease-out 700ms forwards; }
+.alvares-splash__bar    { animation: splash-fade 400ms ease-out 800ms forwards; }
+.alvares-splash__slogan { animation: splash-fade 500ms ease-out 1000ms forwards; }
+@keyframes splash-fade { to { opacity: 1; } }
+
+.alvares-splash__bar {
+  width: 180px; height: 2px; background: oklch(.30 .006 70);
+  border-radius: 1px; overflow: hidden; position: relative;
+}
+.alvares-splash__bar i {
+  display: block; height: 100%; width: 0;
+  background: oklch(.80 .13 86);
+  animation: splash-bar 1000ms ease-out 800ms forwards;
+}
+@keyframes splash-bar { to { width: 100%; } }
+
+.alvares-splash__unit {
+  font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: oklch(.66 .007 80);
+}
+.alvares-splash__slogan {
+  position: absolute; bottom: 22px; left: 0; right: 0; text-align: center;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .34em; text-transform: uppercase; color: oklch(.55 .06 60);
+}
+
+/* fade-out при unmount — додайте клас .leaving до .alvares-splash */
+.alvares-splash.leaving { animation: splash-leave 320ms ease-in forwards; }
+@keyframes splash-leave { to { opacity: 0; visibility: hidden; } }
+
+/* ---------- 2. PAGE TRANSITION ---------- */
+/* Обгортка контенту сторінки. Додайте data-page-key на цей <div>, який
+   міняється при зміні роуту — React відрендерить новий <div>, старий
+   приберіть через 200ms після зміни. Хук usePageTransition це робить. */
+.alvares-page {
+  opacity: 0; transform: translateY(8px);
+  animation: page-in var(--t-base) var(--ease-out) forwards;
+}
+.alvares-page.leaving {
+  animation: page-out 140ms var(--ease-in) forwards;
+}
+@keyframes page-in  { to { opacity: 1; transform: translateY(0); } }
+@keyframes page-out { to { opacity: 0; transform: translateY(-6px); } }
+
+/* ---------- 3. LIST STAGGER + SKELETON ---------- */
+/* Додайте .alvares-row-in до <tr>/<div> рядка одразу при рендері;
+   inline-стиль animation-delay: Nms (де N = index * 25). */
+.alvares-row-in {
+  opacity: 0; transform: translateY(6px);
+  animation: row-in var(--t-slow) var(--ease-out) forwards;
+}
+@keyframes row-in { to { opacity: 1; transform: translateY(0); } }
+
+/* Hover-смужка зліва у рядка списку. ВАЖЛИВО: position: relative + ::before
+   ламає layout на <tr> (Chromium ігнорує relative для table-row anonymous
+   container'а). Тому правило обмежене :not(tr) — для div-списків ок,
+   для табличних рядків hover-ефект забезпечує main.css (.tbl tr:hover td). */
+.alvares-row-hover:not(tr) { position: relative; }
+.alvares-row-hover:not(tr):hover::before {
+  content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px;
+  background: var(--accent); border-radius: 1px;
+  animation: hover-bar 140ms ease-out;
+}
+@keyframes hover-bar { from { transform: scaleY(.4); opacity: 0; } }
+
+/* Skeleton shimmer */
+.alvares-skel {
+  height: 11px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- 4. KANBAN DnD ---------- */
+.alvares-kb-card {
+  cursor: grab; user-select: none;
+  transition:
+    transform var(--t-slow) var(--ease-out),
+    box-shadow 200ms,
+    border-color 100ms;
+}
+.alvares-kb-card.dragging {
+  transform: scale(1.04) rotate(-1.2deg);
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,.55), 0 0 0 1px var(--accent-line);
+  cursor: grabbing; z-index: 10;
+}
+.alvares-kb-col.over {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+}
+
+/* ---------- 5. KPI / SPARKLINE ---------- */
+/* Число оновлюється через JS-хук useCountUp. Для delta-fade: */
+.alvares-kpi-delta {
+  opacity: 0; transform: translateY(4px);
+  animation: delta-in var(--t-slow) ease-out 700ms forwards;
+}
+@keyframes delta-in { to { opacity: 1; transform: translateY(0); } }
+
+/* Sparkline: при mount додайте клас .alvares-spark--draw на <svg>. */
+.alvares-spark .line {
+  stroke: var(--accent); stroke-width: 1.5; fill: none;
+  stroke-dasharray: 600; stroke-dashoffset: 600;
+}
+.alvares-spark .area { fill: var(--accent-dim); opacity: 0; }
+.alvares-spark.alvares-spark--draw .line { animation: line-draw 1100ms ease-out 200ms forwards; }
+.alvares-spark.alvares-spark--draw .area { animation: area-fade 600ms ease-out 900ms forwards; }
+@keyframes line-draw { to { stroke-dashoffset: 0; } }
+@keyframes area-fade { to { opacity: 1; } }
+
+/* ---------- 6. SIDEBAR COLLAPSE ---------- */
+/* В AppLayout.tsx у вас Ant Sider — він керує шириною. Додайте до Sider:
+   className="alvares-sider" і до labels span'ів — class="alvares-sider__label".
+   Sider у згорнутому стані отримує клас .ant-layout-sider-collapsed. */
+.alvares-sider .alvares-sider__label {
+  white-space: nowrap; opacity: 1;
+  transition: opacity 100ms;
+}
+.ant-layout-sider-collapsed.alvares-sider .alvares-sider__label {
+  opacity: 0; transition-duration: 60ms;
+}
+/* Ширина Sider'а сама транзитується Ant Design'ом за 0.2s. */
+
+/* ---------- 7. THEME TRANSITION ---------- */
+/* Кнопка перемикання теми: іконка обертається */
+.alvares-theme-toggle { position: relative; display: inline-grid; place-items: center; }
+.alvares-theme-toggle .sun,
+.alvares-theme-toggle .moon {
+  position: absolute;
+  transition: opacity var(--t-theme) ease, transform 320ms var(--ease-out);
+}
+.alvares-theme-toggle .sun  { opacity: 0; transform: scale(.6) rotate(-90deg); }
+.alvares-theme-toggle .moon { opacity: 1; transform: scale(1) rotate(0); }
+[data-theme="light"] .alvares-theme-toggle .sun  { opacity: 1; transform: scale(1) rotate(0); }
+[data-theme="light"] .alvares-theme-toggle .moon { opacity: 0; transform: scale(.6) rotate(90deg); }
+
+/* ---------- 8. MICRO ---------- */
+.alvares-btn-press {
+  transition: background 100ms, transform 80ms, box-shadow 120ms;
+}
+.alvares-btn-press:active { transform: scale(.96); }
+.alvares-btn-press.primary:active { box-shadow: 0 0 0 4px var(--accent-dim); }
+
+/* Toggle pill з overshoot */
+.alvares-toggle {
+  width: 38px; height: 22px; border-radius: 11px;
+  background: var(--bg-3); border: 1px solid var(--line-2);
+  position: relative; cursor: pointer;
+  transition: background 200ms;
+}
+.alvares-toggle.on { background: var(--accent); border-color: var(--accent); }
+.alvares-toggle i {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--fg-0);
+  transition: left var(--t-slow) var(--ease-spring), background 200ms;
+}
+.alvares-toggle.on i { left: 18px; background: oklch(.18 .02 86); }
+
+/* Search expand-on-focus */
+.alvares-search {
+  transition: width var(--t-base) var(--ease-out), border-color 160ms, box-shadow 160ms;
+}
+.alvares-search:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* Toast slide-in */
+.alvares-toast {
+  transform: translateX(120%); opacity: 0;
+}
+.alvares-toast.show {
+  animation: toast-in 360ms var(--ease-out) forwards,
+             toast-out 360ms ease-in forwards;
+  animation-delay: 0ms, 2200ms;
+}
+@keyframes toast-in  { to { transform: translateX(0);    opacity: 1; } }
+@keyframes toast-out { to { transform: translateX(120%); opacity: 0; } }
+
+/* ---------- 9. INLINE CLICKABLE NAME ---------- */
+/* Прізвище в таблиці реєстру: клік відкриває картку бійця.
+   Замінює <b> у .cell-name .name b — той самий font-weight,
+   плюс hover-колір акценту і transition. */
+.person-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.person-link:hover { color: var(--accent); text-decoration: underline; }
+.person-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------- prefers-reduced-motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Popconfirm, message, Tooltip } from 'antd'
+import { Popconfirm, message, Tooltip, Popover, Checkbox } from 'antd'
 import {
   PlusOutlined,
   DownloadOutlined,
@@ -12,6 +12,7 @@ import {
   TableOutlined,
   AppstoreOutlined,
   CloseOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { PersonnelListItem } from '@shared/types/personnel'
@@ -68,6 +69,34 @@ function callsignInitials(callsign: string | null): string {
 
 const PAGE_SIZE = 50
 
+// Опційні колонки. `name` і `actions` — завжди видимі і у списку відсутні.
+type ColKey = 'idx' | 'rank' | 'subdivision' | 'position' | 'status' | 'phone'
+const COLUMN_OPTIONS: Array<{ key: ColKey; label: string }> = [
+  { key: 'idx', label: '№' },
+  { key: 'rank', label: 'Звання' },
+  { key: 'subdivision', label: 'Підрозділ' },
+  { key: 'position', label: 'Посада' },
+  { key: 'status', label: 'Статус' },
+  { key: 'phone', label: 'Телефон' },
+]
+const ALL_COLS: ColKey[] = COLUMN_OPTIONS.map((c) => c.key)
+const COLS_STORAGE_KEY = 'ejoos.registry.cols.v1'
+
+function loadVisibleCols(): ColKey[] {
+  try {
+    const raw = localStorage.getItem(COLS_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        return parsed.filter((v): v is ColKey => ALL_COLS.includes(v as ColKey))
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return ALL_COLS
+}
+
 export default function PersonnelRegistry(): JSX.Element {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -80,6 +109,18 @@ export default function PersonnelRegistry(): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<PersonnelListItem | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [visibleCols, setVisibleCols] = useState<ColKey[]>(loadVisibleCols)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(visibleCols))
+    } catch {
+      /* ignore quota */
+    }
+  }, [visibleCols])
+
+  const showCol = (k: ColKey): boolean => visibleCols.includes(k)
+  const colSpan = 2 + visibleCols.length // name + actions + опційні
 
   const platoonParam = searchParams.get('platoon')
   const platoonFilter = useMemo<PlatoonCode | null>(() => {
@@ -358,6 +399,63 @@ export default function PersonnelRegistry(): JSX.Element {
           />
         </div>
 
+        <Popover
+          trigger="click"
+          placement="bottomRight"
+          content={
+            <div style={{ minWidth: 180 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--fg-3)',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                Стовпці
+              </div>
+              <Checkbox.Group
+                value={visibleCols}
+                onChange={(vals) =>
+                  setVisibleCols(vals.filter((v): v is ColKey => ALL_COLS.includes(v as ColKey)))
+                }
+                style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+              >
+                {COLUMN_OPTIONS.map((c) => (
+                  <Checkbox key={c.key} value={c.key}>
+                    {c.label}
+                  </Checkbox>
+                ))}
+              </Checkbox.Group>
+              <div
+                style={{
+                  marginTop: 10,
+                  paddingTop: 8,
+                  borderTop: '1px solid var(--line-1)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <button className="btn sm ghost" onClick={() => setVisibleCols([])}>
+                  Очистити
+                </button>
+                <button className="btn sm" onClick={() => setVisibleCols(ALL_COLS)}>
+                  Усі
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <Tooltip title="Стовпці">
+            <button className="btn ghost" style={{ padding: '0 8px' }}>
+              <SettingOutlined />
+            </button>
+          </Tooltip>
+        </Popover>
+
         <div className="seg-control">
           <Tooltip title="Таблиця">
             <button className="on">
@@ -378,27 +476,27 @@ export default function PersonnelRegistry(): JSX.Element {
           <table className="tbl">
             <thead>
               <tr>
-                <th style={{ width: 70 }}>№</th>
+                {showCol('idx') && <th style={{ width: 70 }}>№</th>}
                 <th>Боєць</th>
-                <th style={{ width: 160 }}>Звання</th>
-                <th style={{ width: 80 }}>Підр.</th>
-                <th>Посада</th>
-                <th style={{ width: 150 }}>Статус</th>
-                <th style={{ width: 130 }}>Телефон</th>
+                {showCol('rank') && <th style={{ width: 160 }}>Звання</th>}
+                {showCol('subdivision') && <th style={{ width: 80 }}>Підр.</th>}
+                {showCol('position') && <th>Посада</th>}
+                {showCol('status') && <th style={{ width: 150 }}>Статус</th>}
+                {showCol('phone') && <th style={{ width: 130 }}>Телефон</th>}
                 <th style={{ width: 90 }}></th>
               </tr>
             </thead>
             <tbody>
               {loading && paged.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}>
+                  <td colSpan={colSpan} style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}>
                     Завантаження…
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}>
+                  <td colSpan={colSpan} style={{ textAlign: 'center', padding: 40, color: 'var(--fg-3)' }}>
                     Записів не знайдено
                   </td>
                 </tr>
@@ -410,49 +508,71 @@ export default function PersonnelRegistry(): JSX.Element {
                   combatCodes
                 )
                 const idx = (safePage - 1) * PAGE_SIZE + i + 1
+                const staggerIdx = Math.min(i, 12)
                 return (
                   <tr
                     key={p.id}
-                    className={p.id === selectedId ? 'selected' : ''}
+                    className={'alvares-row-in' + (p.id === selectedId ? ' selected' : '')}
+                    style={{ animationDelay: `${staggerIdx * 25}ms` }}
                     onClick={() => setSelectedId(p.id)}
                     onDoubleClick={() => navigate(`/personnel/${p.id}`)}
                   >
-                    <td className="num dim">{String(idx).padStart(3, '0')}</td>
+                    {showCol('idx') && <td className="num dim">{String(idx).padStart(3, '0')}</td>}
                     <td>
                       <div className="cell-name">
                         <div className="avatar sm">{callsignInitials(p.callsign)}</div>
                         <div className="name">
-                          <b>{p.fullName}</b>
+                          <button
+                            type="button"
+                            className="person-link"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/personnel/${p.id}`)
+                            }}
+                            title="Відкрити картку"
+                          >
+                            {p.fullName}
+                          </button>
                           <span>{p.callsign || '—'}</span>
                         </div>
                       </div>
                     </td>
-                    <td>
-                      <span className="rank">{p.rankName || '—'}</span>
-                    </td>
-                    <td>
-                      <span className="mono dim" style={{ fontSize: 11 }}>
-                        {p.currentSubdivision || '—'}
-                      </span>
-                    </td>
-                    <td style={{ color: 'var(--fg-1)' }}>
-                      {p.positionTitle || p.currentPositionIdx || '—'}
-                    </td>
-                    <td>
-                      {p.currentStatusCode ? (
-                        <span className={pillClassFor(cat)}>
-                          <span className="dot" />
-                          {p.currentStatusCode}
+                    {showCol('rank') && (
+                      <td>
+                        <span className="rank">{p.rankName || '—'}</span>
+                      </td>
+                    )}
+                    {showCol('subdivision') && (
+                      <td>
+                        <span className="mono dim" style={{ fontSize: 11 }}>
+                          {p.currentSubdivision || '—'}
                         </span>
-                      ) : (
-                        <span className="dim mono" style={{ fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="mono dim" style={{ fontSize: 11 }}>
-                        {p.phone || '—'}
-                      </span>
-                    </td>
+                      </td>
+                    )}
+                    {showCol('position') && (
+                      <td style={{ color: 'var(--fg-1)' }}>
+                        {p.positionTitle || p.currentPositionIdx || '—'}
+                      </td>
+                    )}
+                    {showCol('status') && (
+                      <td>
+                        {p.currentStatusCode ? (
+                          <span className={pillClassFor(cat)}>
+                            <span className="dot" />
+                            {p.currentStatusCode}
+                          </span>
+                        ) : (
+                          <span className="dim mono" style={{ fontSize: 11 }}>—</span>
+                        )}
+                      </td>
+                    )}
+                    {showCol('phone') && (
+                      <td>
+                        <span className="mono dim" style={{ fontSize: 11 }}>
+                          {p.phone || '—'}
+                        </span>
+                      </td>
+                    )}
                     <td>
                       <div
                         style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}
