@@ -203,6 +203,16 @@ const api = {
     return () => ipcRenderer.removeAllListeners('updater:status')
   },
 
+  // v1.6.3 diagnostic — TODO: видалити з preload+DocumentGenerator+disposition-builder у v1.6.5
+  onDispositionDiagnostic: (cb: (payload: unknown) => void) => {
+    ipcRenderer.on('diagnostic:disposition', (_e, payload) => cb(payload))
+    return () => ipcRenderer.removeAllListeners('diagnostic:disposition')
+  },
+  onDispositionPostDiagnostic: (cb: (payload: unknown) => void) => {
+    ipcRenderer.on('diagnostic:disposition-post', (_e, payload) => cb(payload))
+    return () => ipcRenderer.removeAllListeners('diagnostic:disposition-post')
+  },
+
   // DGV (Грошове забезпечення)
   dgvCodesList: () => ipcRenderer.invoke(IPC.DGV_CODES_LIST),
   dgvGetMonth: (year: number, month: number) =>

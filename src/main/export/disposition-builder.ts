@@ -34,7 +34,7 @@
  *   * ACK_LIST — список усіх задіяних ОС з рангами.
  */
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { dialog, app } from 'electron'
+import { dialog, app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import PizZip from 'pizzip'
 import Docxtemplater from 'docxtemplater'
@@ -215,8 +215,15 @@ export function renderDispositionBuffer(
   // v1.6.3: discriminator — statusTypes.code (first-class бізнес-ключ),
   // не dgvCode (payment metadata, який міг дрейфувати між версіями —
   // у БД з v1.4.2 РОП-status має dgv_code='100'). WHERE містить OR
-  // по code='роп', щоб гарантовано захопити РОП-записи незалежно
+  // по LOWER(code)='роп', щоб гарантовано захопити РОП-записи незалежно
   // від dgvCode їхнього status_type.
+  // v1.6.4: case-insensitive порівняння — у БД юзера code='РОП' (uppercase
+  // як human-readable label, а не lowercase slug). SQLite built-in LOWER()
+  // НЕ працює з кирилицею (ASCII only!), тому використовуємо explicit
+  // `code IN ('роп','РОП')` у SQL. На JS-стороні — .toLowerCase() (JS
+  // підтримує Unicode case-fold нативно). Якщо колись з'являться інші
+  // case'и ('Роп', 'рОП' ...), розширити IN-список або реєструвати
+  // кастомну Unicode-LOWER через db.function() у better-sqlite3.
   // Включаємо brRole — це визначає шлях розподілу:
   //   * statusCode='роп' → завжди в positionPool ({{ROP}}). Боєць фізично
   //     на ЛБЗ, навіть якщо є призначена роль — у Розпорядженні він не
@@ -242,7 +249,7 @@ export function renderDispositionBuffer(
       eq(attendance.date, isoDate),
       eq(personnel.status, 'active'),
       eq(personnel.currentSubdivision, 'Г-3'),
-      sql`(${statusTypes.dgvCode} IN ('100', 'роп') OR ${statusTypes.code} = 'роп')`
+      sql`(${statusTypes.dgvCode} IN ('100', 'роп') OR ${statusTypes.code} IN ('роп', 'РОП'))`
     ))
     .orderBy(asc(personnel.currentPositionIdx))
     .all()
@@ -259,7 +266,7 @@ export function renderDispositionBuffer(
     .select({ personnelId: attendance.personnelId })
     .from(attendance)
     .innerJoin(statusTypes, eq(attendance.statusCode, statusTypes.code))
-    .where(and(eq(attendance.date, prevIsoDate), eq(statusTypes.code, 'роп')))
+    .where(and(eq(attendance.date, prevIsoDate), sql`${statusTypes.code} IN ('роп', 'РОП')`))
     .all()
   const prevRopSet = new Set<number>(prevRopRows.map((r) => r.personnelId))
 
@@ -287,7 +294,7 @@ export function renderDispositionBuffer(
       positionIdx: r.positionIdx
     }
 
-    if (r.statusCode === 'роп') {
+    if (r.statusCode?.toLowerCase() === 'роп') {
       if (prevRopSet.has(r.personnelId)) {
         continuingRop.push(soldier)
       } else {
@@ -296,7 +303,7 @@ export function renderDispositionBuffer(
       continue
     }
 
-    // statusCode === '100': роль або orphan (positionPool fallback).
+    // statusCode === '100' (case-insensitive): роль або orphan (positionPool fallback).
     if (r.brRole && BR_ROLE_BY_NAME.has(r.brRole)) {
       byRole.get(r.brRole)!.push(soldier)
     } else {
@@ -325,7 +332,7 @@ export function renderDispositionBuffer(
   // БЕЗ continuingRop (вони вже доведені раніше). Раніше у v1.6.1 — всі rows.
   const continuingIds = new Set<number>()
   for (const r of rows) {
-    if (r.statusCode === 'роп' && prevRopSet.has(r.personnelId)) {
+    if (r.statusCode?.toLowerCase() === 'роп' && prevRopSet.has(r.personnelId)) {
       continuingIds.add(r.personnelId)
     }
   }
@@ -373,16 +380,33 @@ export function renderDispositionBuffer(
         })
         .join(';\n') + ';'
 
-  // v1.6.2 hotfix: diagnostic log для debugging порожніх плейсхолдерів.
-  // Видалити після ствердження стабільної роботи (v1.6.3).
-  console.log('[disposition]', isoDate, {
+  // v1.6.3 diagnostic: broadcast у renderer, бо main-process console.log
+  // юзеру не видно (DevTools показує лише renderer). Видалити у v1.6.4.
+  const diagnostic = {
+    isoDate,
+    prevIsoDate,
     rowsCount: rows.length,
     firstRop: firstRop.length,
     continuingRop: continuingRop.length,
     byRoleTotal: Array.from(byRole.values()).reduce((s, a) => s + a.length, 0),
     positionPoolOrphans: positionPool.length,
-    prevRopSetSize: prevRopSet.size
-  })
+    prevRopSetSize: prevRopSet.size,
+    ackRowsCount: ackRows.length,
+    ackListXmlLength: ackListXml.length,
+    ackListXmlPreview: ackListXml.slice(0, 200),
+    // Перші 10 рядків — повна правда про те, що JOIN повернув:
+    sampleRows: rows.slice(0, 10).map((r) => ({
+      id: r.personnelId,
+      name: r.fullName,
+      statusCode: r.statusCode,
+      brRole: r.brRole,
+      prevWasRop: prevRopSet.has(r.personnelId)
+    }))
+  }
+  console.log('[disposition]', diagnostic)
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('diagnostic:disposition', diagnostic)
+  }
 
   const renderData: Record<string, string | boolean> = {
     dispositionNumber,
@@ -400,7 +424,62 @@ export function renderDispositionBuffer(
   }
 
   doc.render(renderData)
-  const buffer = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer
+
+  // v1.6.4: post-render XML mutation для ACK_LIST.
+  // Причина: у docxtemplater 3.56 + custom delimiters `{{...}}` синтаксис
+  // `{{@var}}` для inline raw-XML НЕ активується як block-replacement —
+  // обробляється як звичайний tag з ключем `@var`, не знаходить значення,
+  // nullGetter повертає '' → плейсхолдер заміщується порожнім текстом.
+  // Тому шукаємо параграф навколо унікальної tab-stop signature (pos=10205) —
+  // це наш ACK-плейсхолдер у шаблоні — і вручну замінюємо на raw XML.
+  //
+  // Знайдення параграфа — НЕ через regex (non-greedy матчить занадто широко
+  // для багатопараграфного XML), а через 3-крокове ручне обмеження:
+  //   1. indexOf('w:pos="10205"') — точка прив'язки
+  //   2. lastIndexOf('<w:p ', тут) — початок батьківського параграфа
+  //   3. indexOf('</w:p>', тут) — кінець батьківського параграфа.
+  const renderedZip = doc.getZip()
+  const renderedXmlBefore = renderedZip.file('word/document.xml')?.asText() ?? ''
+  const ACK_ANCHOR = 'w:pos="10205"'
+  const anchorIdx = renderedXmlBefore.indexOf(ACK_ANCHOR)
+  let ackMutationStatus: 'replaced' | 'not_found' | 'empty_rows' = 'not_found'
+  let renderedXmlAfter = renderedXmlBefore
+  let matchedParaLength = 0
+  if (anchorIdx >= 0) {
+    const paraStart = renderedXmlBefore.lastIndexOf('<w:p ', anchorIdx)
+    const paraEndMarker = '</w:p>'
+    const paraEndIdx = renderedXmlBefore.indexOf(paraEndMarker, anchorIdx)
+    if (paraStart >= 0 && paraEndIdx > paraStart) {
+      const paraEnd = paraEndIdx + paraEndMarker.length
+      matchedParaLength = paraEnd - paraStart
+      if (ackRows.length === 0) {
+        ackMutationStatus = 'empty_rows'
+      } else {
+        renderedXmlAfter =
+          renderedXmlBefore.slice(0, paraStart) +
+          ackListXml +
+          renderedXmlBefore.slice(paraEnd)
+        renderedZip.file('word/document.xml', renderedXmlAfter)
+        ackMutationStatus = 'replaced'
+      }
+    }
+  }
+
+  // v1.6.4 post-render diagnostic. Видалити у v1.6.5.
+  const postDiag = {
+    isoDate,
+    ackMutationStatus,
+    ackRowsCount: ackRows.length,
+    ackParaMatchLength: matchedParaLength,
+    xmlSizeBefore: renderedXmlBefore.length,
+    xmlSizeAfter: renderedXmlAfter.length
+  }
+  console.log('[disposition:post-render]', postDiag)
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('diagnostic:disposition-post', postDiag)
+  }
+
+  const buffer = renderedZip.generate({ type: 'nodebuffer' }) as Buffer
   return { buffer, dispositionNumber, dispositionDate }
 }
 
