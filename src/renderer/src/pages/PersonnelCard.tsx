@@ -2,8 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card,
-  Row,
-  Col,
   Button,
   Space,
   Spin,
@@ -20,6 +18,7 @@ import {
   Empty,
   Tabs,
   Popconfirm,
+  Splitter,
   App
 } from 'antd'
 import {
@@ -34,7 +33,9 @@ import {
   FolderOpenOutlined,
   CameraOutlined,
   PrinterOutlined,
-  FormOutlined
+  FormOutlined,
+  CaretRightOutlined,
+  ReloadOutlined
 } from '@ant-design/icons'
 import { usePersonnelCard } from '../hooks/usePersonnel'
 import { usePersonMovements } from '../hooks/useMovements'
@@ -127,6 +128,82 @@ function SectionTitle({ children }: { children: React.ReactNode }): JSX.Element 
   )
 }
 
+const LAYOUT_LS_KEYS = {
+  sizes: 'personnel-card:splitter-sizes',
+  collapsed: 'personnel-card:collapsed-sections'
+} as const
+
+const DEFAULT_SPLITTER_SIZES: (number | string)[] = ['50%', '25%', '25%']
+
+function loadSplitterSizes(): (number | string)[] {
+  try {
+    const raw = localStorage.getItem(LAYOUT_LS_KEYS.sizes)
+    if (!raw) return DEFAULT_SPLITTER_SIZES
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.length === 3) return parsed
+    return DEFAULT_SPLITTER_SIZES
+  } catch {
+    return DEFAULT_SPLITTER_SIZES
+  }
+}
+
+function loadCollapsedSections(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(LAYOUT_LS_KEYS.collapsed)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function CollapsibleSection({
+  sectionKey,
+  title,
+  collapsed,
+  onToggle,
+  children
+}: {
+  sectionKey: string
+  title: string
+  collapsed: boolean
+  onToggle: (key: string) => void
+  children: React.ReactNode
+}): JSX.Element {
+  const { token } = theme.useToken()
+  return (
+    <>
+      <div
+        onClick={() => onToggle(sectionKey)}
+        style={{
+          background: token.colorFillTertiary,
+          padding: '5px 10px',
+          marginBottom: collapsed ? 0 : 10,
+          fontWeight: 700,
+          fontSize: 11,
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          color: token.colorText,
+          borderLeft: `3px solid ${token.colorPrimary}`,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          userSelect: 'none'
+        }}
+      >
+        <span>{title}</span>
+        <CaretRightOutlined
+          rotate={collapsed ? 0 : 90}
+          style={{ fontSize: 10, transition: 'transform 0.2s' }}
+        />
+      </div>
+      {!collapsed && children}
+    </>
+  )
+}
+
 function InfoRow({ label, value }: { label: string; value?: React.ReactNode }): JSX.Element {
   const { token } = theme.useToken()
   return (
@@ -182,6 +259,31 @@ export default function PersonnelCard(): JSX.Element {
   const [photoHover, setPhotoHover] = useState(false)
   const [photoError, setPhotoError] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
+  const [splitterSizes, setSplitterSizes] = useState<(number | string)[]>(() => loadSplitterSizes())
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => loadCollapsedSections())
+
+  const handleSplitterResize = (sizes: number[]): void => {
+    setSplitterSizes(sizes)
+    try { localStorage.setItem(LAYOUT_LS_KEYS.sizes, JSON.stringify(sizes)) } catch {}
+  }
+
+  const toggleSection = (key: string): void => {
+    setCollapsedSections((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      try { localStorage.setItem(LAYOUT_LS_KEYS.collapsed, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
+  const resetLayout = (): void => {
+    setSplitterSizes(DEFAULT_SPLITTER_SIZES)
+    setCollapsedSections({})
+    try {
+      localStorage.removeItem(LAYOUT_LS_KEYS.sizes)
+      localStorage.removeItem(LAYOUT_LS_KEYS.collapsed)
+    } catch {}
+  }
 
   useEffect(() => {
     if (!person) return
@@ -517,6 +619,12 @@ export default function PersonnelCard(): JSX.Element {
           <h1>{person.fullName}</h1>
         </div>
         <div className="actions">
+          <Tooltip title="Скинути layout (розміри колонок та видимість секцій)">
+            <button className="btn ghost" onClick={resetLayout}>
+              <ReloadOutlined />
+              Layout
+            </button>
+          </Tooltip>
           <button className="btn ghost" onClick={() => window.print()}>
             <PrinterOutlined />
             Друк
@@ -540,8 +648,8 @@ export default function PersonnelCard(): JSX.Element {
           onMouseLeave={() => setPhotoHover(false)}
           style={{
             position: 'relative',
-            width: 96,
-            height: 96,
+            width: 120,
+            height: 140,
             cursor: 'pointer',
             overflow: 'hidden',
             borderRadius: 'var(--radius-2)',
@@ -676,107 +784,134 @@ export default function PersonnelCard(): JSX.Element {
         </div>
       </div>
 
-      {/* ── Top 3-column section ── */}
-      <Row gutter={[12, 12]}>
-        {/* ── Col 1: Основні дані ── */}
-        <Col xs={24} lg={12}>
-          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%' }}>
-            <SectionTitle>Основні дані</SectionTitle>
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: 110 }} />
-                <col />
-              </colgroup>
-              <tbody>
-                <InfoRow label="ПІБ" value={<strong>{person.fullName}</strong>} />
-                <InfoRow label="Звання" value={<RankBadge rankName={person.rankName} category={person.rankCategory} />} />
-                <InfoRow label="Позивний" value={person.callsign || '—'} />
-                <InfoRow
-                  label="Статус"
-                  value={
-                    <StatusBadge
-                      statusCode={person.currentStatusCode}
-                      statusName={person.statusName}
-                      colorCode={statusColor}
-                    />
-                  }
-                />
-                <InfoRow label="Підрозділ" value={person.currentSubdivision || '—'} />
-                <InfoRow label="Посада" value={person.positionTitle || person.currentPositionIdx || '—'} />
-                <InfoRow label="Вид служби" value={person.serviceType || '—'} />
-                <InfoRow label="Особистий номер" value={person.ipn || '—'} />
-              </tbody>
-            </table>
-          </Card>
-        </Col>
-
-        {/* ── Col 2: Особисті дані + Служба та призначення ── */}
-        <Col xs={24} sm={12} lg={6}>
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Card bodyStyle={{ padding: 12 }}>
-              <SectionTitle>Особисті дані</SectionTitle>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      {/* ── Top 3-column resizable section ── */}
+      <Splitter
+        onResize={handleSplitterResize}
+        style={{ background: 'transparent' }}
+      >
+        {/* ── Panel 1: Основні дані ── */}
+        <Splitter.Panel size={splitterSizes[0]} min="20%" max="75%">
+          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%', marginRight: 6 }}>
+            <CollapsibleSection
+              sectionKey="main"
+              title="Основні дані"
+              collapsed={!!collapsedSections.main}
+              onToggle={toggleSection}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: 150 }} />
+                  <col />
+                </colgroup>
                 <tbody>
-                  <InfoRow label="Дата народження" value={formatDate(person.dateOfBirth)} />
+                  <InfoRow label="ПІБ" value={<strong>{person.fullName}</strong>} />
+                  <InfoRow label="Звання" value={<RankBadge rankName={person.rankName} category={person.rankCategory} />} />
+                  <InfoRow label="Позивний" value={person.callsign || '—'} />
                   <InfoRow
-                    label="Стать"
-                    value={person.gender === 'ч' ? 'Чоловіча' : person.gender === 'ж' ? 'Жіноча' : '—'}
+                    label="Статус"
+                    value={
+                      <StatusBadge
+                        statusCode={person.currentStatusCode}
+                        statusName={person.statusName}
+                        colorCode={statusColor}
+                      />
+                    }
                   />
-                  <InfoRow label="Група крові" value={bloodTypeName || '—'} />
-                  <InfoRow label="ІПН" value={person.ipn || '—'} />
-                  <InfoRow
-                    label="УБД"
-                    value={[person.ubdSeries, person.ubdNumber].filter(Boolean).join(' ') || '—'}
-                  />
+                  <InfoRow label="Підрозділ" value={person.currentSubdivision || '—'} />
+                  <InfoRow label="Посада" value={person.positionTitle || person.currentPositionIdx || '—'} />
+                  <InfoRow label="Вид служби" value={person.serviceType || '—'} />
+                  <InfoRow label="Особистий номер" value={person.ipn || '—'} />
                 </tbody>
               </table>
+            </CollapsibleSection>
+          </Card>
+        </Splitter.Panel>
+
+        {/* ── Panel 2: Особисті дані + Службові відомості ── */}
+        <Splitter.Panel size={splitterSizes[1]} min="15%">
+          <Space direction="vertical" size={12} style={{ width: '100%', padding: '0 6px' }}>
+            <Card bodyStyle={{ padding: 12 }}>
+              <CollapsibleSection
+                sectionKey="personal"
+                title="Особисті дані"
+                collapsed={!!collapsedSections.personal}
+                onToggle={toggleSection}
+              >
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    <InfoRow label="Дата народження" value={formatDate(person.dateOfBirth)} />
+                    <InfoRow
+                      label="Стать"
+                      value={person.gender === 'ч' ? 'Чоловіча' : person.gender === 'ж' ? 'Жіноча' : '—'}
+                    />
+                    <InfoRow label="Група крові" value={bloodTypeName || '—'} />
+                    <InfoRow label="ІПН" value={person.ipn || '—'} />
+                    <InfoRow
+                      label="УБД"
+                      value={[person.ubdSeries, person.ubdNumber].filter(Boolean).join(' ') || '—'}
+                    />
+                  </tbody>
+                </table>
+              </CollapsibleSection>
             </Card>
 
             <Card bodyStyle={{ padding: 12 }}>
-              <SectionTitle>Службові відомості</SectionTitle>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                  <InfoRow label="ВОС" value={person.specialtyCode || '—'} />
-                  <InfoRow label="Зарахований до списків в/ч" value={formatDate(person.enrollmentDate)} />
-                  <InfoRow label="Наказ" value={person.enrollmentOrderNum || '—'} />
-                  <InfoRow label="Призваний" value={[person.tccName, formatDate(person.conscriptionDate)].filter(v => v && v !== '—').join(', ') || '—'} />
-                  {person.serviceType !== 'мобілізація' && person.serviceType !== 'мобілізований' && (
-                    <InfoRow label="Кінець контракту" value={
-                      [contractName, formatDate(person.contractEndDate)].filter(v => v && v !== '—').join(' — ') || '—'
-                    } />
-                  )}
-                </tbody>
-              </table>
+              <CollapsibleSection
+                sectionKey="service"
+                title="Службові відомості"
+                collapsed={!!collapsedSections.service}
+                onToggle={toggleSection}
+              >
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    <InfoRow label="ВОС" value={person.specialtyCode || '—'} />
+                    <InfoRow label="Зарахований до списків в/ч" value={formatDate(person.enrollmentDate)} />
+                    <InfoRow label="Наказ" value={person.enrollmentOrderNum || '—'} />
+                    <InfoRow label="Призваний" value={[person.tccName, formatDate(person.conscriptionDate)].filter(v => v && v !== '—').join(', ') || '—'} />
+                    {person.serviceType !== 'мобілізація' && person.serviceType !== 'мобілізований' && (
+                      <InfoRow label="Кінець контракту" value={
+                        [contractName, formatDate(person.contractEndDate)].filter(v => v && v !== '—').join(' — ') || '—'
+                      } />
+                    )}
+                  </tbody>
+                </table>
+              </CollapsibleSection>
             </Card>
           </Space>
-        </Col>
+        </Splitter.Panel>
 
-        {/* ── Col 3: Контакти та сім'я ── */}
-        <Col xs={24} sm={12} lg={6}>
-          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%' }}>
-            <SectionTitle>Контакти та сім&apos;я</SectionTitle>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                <InfoRow label="Телефон" value={person.phone || '—'} />
-                <InfoRow label="Сімейний стан" value={person.maritalStatus || '—'} />
-                {person.addressRegistered && person.addressActual && person.addressRegistered.trim().toLowerCase() === person.addressActual.trim().toLowerCase() ? (
-                  <InfoRow label="Адреса проживання та реєстрації" value={person.addressActual} />
-                ) : (
-                  <>
-                    <InfoRow label="Адреса реєстрації" value={person.addressRegistered || '—'} />
-                    <InfoRow label="Адреса проживання" value={person.addressActual || '—'} />
-                  </>
-                )}
-                <InfoRow label="Родичі" value={
-                  person.relativesInfo
-                    ? <span style={{ whiteSpace: 'pre-line' }}>{person.relativesInfo.replace(/;\s*/g, ';\n')}</span>
-                    : '—'
-                } />
-              </tbody>
-            </table>
+        {/* ── Panel 3: Контакти та сім'я ── */}
+        <Splitter.Panel size={splitterSizes[2]} min="15%">
+          <Card bodyStyle={{ padding: 12 }} style={{ height: '100%', marginLeft: 6 }}>
+            <CollapsibleSection
+              sectionKey="contacts"
+              title="Контакти та сім'я"
+              collapsed={!!collapsedSections.contacts}
+              onToggle={toggleSection}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <InfoRow label="Телефон" value={person.phone || '—'} />
+                  <InfoRow label="Сімейний стан" value={person.maritalStatus || '—'} />
+                  {person.addressRegistered && person.addressActual && person.addressRegistered.trim().toLowerCase() === person.addressActual.trim().toLowerCase() ? (
+                    <InfoRow label="Адреса проживання та реєстрації" value={person.addressActual} />
+                  ) : (
+                    <>
+                      <InfoRow label="Адреса реєстрації" value={person.addressRegistered || '—'} />
+                      <InfoRow label="Адреса проживання" value={person.addressActual || '—'} />
+                    </>
+                  )}
+                  <InfoRow label="Родичі" value={
+                    person.relativesInfo
+                      ? <span style={{ whiteSpace: 'pre-line' }}>{person.relativesInfo.replace(/;\s*/g, ';\n')}</span>
+                      : '—'
+                  } />
+                </tbody>
+              </table>
+            </CollapsibleSection>
           </Card>
-        </Col>
-      </Row>
+        </Splitter.Panel>
+      </Splitter>
 
       {/* ── Tabs ── */}
       <Card style={{ marginTop: 12 }} bodyStyle={{ paddingTop: 8 }}>

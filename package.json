@@ -1,6 +1,6 @@
 {
   "name": "ejoos-plus",
-  "version": "1.6.6",
+  "version": "1.6.7",
   "description": "АльваресAI — Система обліку особового складу",
   "main": "./out/main/index.js",
   "author": "12 ШР",
