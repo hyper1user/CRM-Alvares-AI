@@ -1,7 +1,7 @@
 /**
  * Document Service — template management, document generation, archive
  */
-import { app, shell } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, unlinkSync } from 'fs'
 import { getDatabase } from '../db/connection'
@@ -844,6 +844,21 @@ export async function generateDispositionDocument(
   const skippedDays: string[] = []
   const ids: number[] = []
 
+  // v1.7.3: підрахунок total днів для progress IPC. inclusive both ends.
+  const totalDays = Math.floor((dateTo.getTime() - dateFrom.getTime()) / 86400000) + 1
+  const broadcastProgress = (payload: {
+    phase: 'start' | 'tick' | 'done'
+    day?: string
+    processed: number
+    skipped: number
+    total: number
+  }): void => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('disposition:batch-progress', payload)
+    }
+  }
+  broadcastProgress({ phase: 'start', processed: 0, skipped: 0, total: totalDays })
+
   for (
     let cursor = new Date(dateFrom);
     cursor.getTime() <= dateTo.getTime();
@@ -857,6 +872,13 @@ export async function generateDispositionDocument(
     const entry = brBatMap.get(isoCursor)
     if (!entry) {
       skippedDays.push(isoCursor)
+      broadcastProgress({
+        phase: 'tick',
+        day: isoCursor,
+        processed: ids.length,
+        skipped: skippedDays.length,
+        total: totalDays
+      })
       continue
     }
 
@@ -900,7 +922,22 @@ export async function generateDispositionDocument(
         })
       })
       .run()
+
+    broadcastProgress({
+      phase: 'tick',
+      day: isoCursor,
+      processed: ids.length,
+      skipped: skippedDays.length,
+      total: totalDays
+    })
   }
+
+  broadcastProgress({
+    phase: 'done',
+    processed: ids.length,
+    skipped: skippedDays.length,
+    total: totalDays
+  })
 
   return {
     type: 'batch',

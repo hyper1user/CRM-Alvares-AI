@@ -15,7 +15,8 @@ import {
   Tabs,
   DatePicker,
   Empty,
-  Select
+  Select,
+  Progress
 } from 'antd'
 import {
   FileTextOutlined,
@@ -99,6 +100,14 @@ export default function DocumentGenerator(): JSX.Element {
   const [generating, setGenerating] = useState(false)
   const [result, setResult] = useState<GeneratedDocument | null>(null)
   const [batchResult, setBatchResult] = useState<BatchGenerationResult | null>(null)
+  // v1.7.3: live progress для batch (період > 1 день). null = немає batch.
+  const [batchProgress, setBatchProgress] = useState<{
+    phase: 'start' | 'tick' | 'done'
+    day?: string
+    processed: number
+    skipped: number
+    total: number
+  } | null>(null)
   const [form] = Form.useForm()
 
   const isXlsxDgv = selectedTemplate?.templateType === 'xlsx_dgv'
@@ -114,6 +123,21 @@ export default function DocumentGenerator(): JSX.Element {
     () => templates.filter((t) => t.category === activeCategory),
     [templates, activeCategory]
   )
+
+  // v1.7.3: subscribe на progress events для batch-генерації. Mount-once.
+  useEffect(() => {
+    const unsub = window.api.onDispositionBatchProgress((raw) => {
+      const p = raw as {
+        phase: 'start' | 'tick' | 'done'
+        day?: string
+        processed: number
+        skipped: number
+        total: number
+      }
+      setBatchProgress(p)
+    })
+    return () => { unsub() }
+  }, [])
 
   // Load tags when DOCX template selected. Skip for special-pipeline
   // шаблонів (xlsx_dgv/docx_confirmation/docx_disposition — мають свої
@@ -136,6 +160,7 @@ export default function DocumentGenerator(): JSX.Element {
     setPersonnelId(undefined)
     setResult(null)
     setBatchResult(null)
+    setBatchProgress(null)
     setPeriod(dayjs())
     setPeriodRange([dayjs(), dayjs()])
     setDispositionVariant('A')
@@ -146,6 +171,7 @@ export default function DocumentGenerator(): JSX.Element {
   const handleGenerate = async (): Promise<void> => {
     if (!selectedTemplate) return
     setGenerating(true)
+    setBatchProgress(null)
     try {
       // v1.6.0/v1.6.1: гілка для disposition.
       // RangePicker [from, to] → executionDateFrom/To. BR батальйону читається
@@ -570,6 +596,43 @@ export default function DocumentGenerator(): JSX.Element {
                 </ul>
               </div>
             </>
+          )}
+
+          {/* v1.7.3: live progress для batch (період > 1 день) */}
+          {generating && batchProgress && batchProgress.total > 1 && (
+            <div
+              style={{
+                background: 'var(--bg-2)',
+                border: '1px solid var(--line-1)',
+                borderRadius: 6,
+                padding: 12,
+                marginBottom: 12
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text strong style={{ fontSize: 13 }}>
+                  Генерація БР {batchProgress.processed + batchProgress.skipped} з {batchProgress.total}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {batchProgress.day
+                    ? `Поточний день: ${batchProgress.day.split('-').reverse().join('.')}`
+                    : 'Старт…'}
+                </Text>
+              </div>
+              <Progress
+                percent={Math.round(
+                  ((batchProgress.processed + batchProgress.skipped) / batchProgress.total) * 100
+                )}
+                status={batchProgress.phase === 'done' ? 'success' : 'active'}
+                size="small"
+              />
+              <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 12 }}>
+                <Text type="success">Збережено: {batchProgress.processed}</Text>
+                {batchProgress.skipped > 0 && (
+                  <Text type="warning">Пропущено (немає у BR_4ShB.xlsx): {batchProgress.skipped}</Text>
+                )}
+              </div>
+            </div>
           )}
 
           <Space>

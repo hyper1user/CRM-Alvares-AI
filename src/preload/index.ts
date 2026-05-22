@@ -158,6 +158,12 @@ const api = {
     fields: Record<string, string>
     variant?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'random'
   }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_DOCX_DISPOSITION, data),
+  // v1.7.3: live progress events для batch-генерації БР (період > 1 день).
+  // Payload: { phase: 'start'|'tick'|'done', processed, skipped, total, day? }
+  onDispositionBatchProgress: (cb: (payload: unknown) => void) => {
+    ipcRenderer.on('disposition:batch-progress', (_e, payload) => cb(payload))
+    return () => ipcRenderer.removeAllListeners('disposition:batch-progress')
+  },
   documentsList: (filters?: { documentType?: string; search?: string }) =>
     ipcRenderer.invoke(IPC.DOCUMENTS_LIST, filters),
   documentsOpen: (filePath: string) => ipcRenderer.invoke(IPC.DOCUMENTS_OPEN, filePath),
