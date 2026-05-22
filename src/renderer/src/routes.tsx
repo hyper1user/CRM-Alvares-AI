@@ -23,6 +23,7 @@ import ImportExport from './pages/ImportExport'
 import Settings from './pages/Settings'
 import StatusTypesAdmin from './pages/StatusTypesAdmin'
 import BrRolesAdmin from './pages/BrRolesAdmin'
+import RopPhrasesAdmin from './pages/RopPhrasesAdmin'
 
 // PageWrap — обгортка з key={pathname}, щоб React перемонтував контент при
 // зміні роуту і CSS-анімація .alvares-page (fade+slide) зіграла кожного разу.
@@ -61,6 +62,7 @@ export default function AppRoutes(): JSX.Element {
       <Route path="/settings" element={<PageWrap><Settings /></PageWrap>} />
       <Route path="/settings/statuses" element={<PageWrap><StatusTypesAdmin /></PageWrap>} />
       <Route path="/settings/br-roles" element={<PageWrap><BrRolesAdmin /></PageWrap>} />
+      <Route path="/settings/rop-phrases" element={<PageWrap><RopPhrasesAdmin /></PageWrap>} />
     </Routes>
   )
 }

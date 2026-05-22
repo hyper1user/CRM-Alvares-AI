@@ -40,8 +40,8 @@ import { join } from 'path'
 import PizZip from 'pizzip'
 import Docxtemplater from 'docxtemplater'
 import { getDatabase } from '../db/connection'
-import { personnel, ranks, positions, attendance, statusTypes } from '../db/schema'
-import { eq, and, asc, sql } from 'drizzle-orm'
+import { personnel, ranks, positions, attendance, statusTypes, settings } from '../db/schema'
+import { eq, and, asc, sql, inArray } from 'drizzle-orm'
 import { BR_ROLES, BR_ROLE_BY_NAME } from '@shared/enums/br-roles'
 import { getBrNumber } from './br-calculator'
 
@@ -346,10 +346,56 @@ export function renderDispositionBuffer(
   const dispositionNumber = dispositionMatch ? dispositionMatch[1] : ''
   const dispositionDate = dispositionMatch ? dispositionMatch[2] : ''
 
+  // 6b. v1.7.1: ROP-фрази з адмінки `/settings/rop-phrases`. Зберігаються у
+  // generic settings-таблиці як `rop_phrase_1..4`. Якщо фраза порожня —
+  // placeholder {{ROPn}} у шаблоні (Variants A/B/C/F) залишився б у вигляді
+  // параграфа з «⊳ » без content; тому pre-render mutation видаляє цілий
+  // параграф зі шаблонної копії перед docxtemplater render.
+  const ropRows = db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(inArray(settings.key, ['rop_phrase_1', 'rop_phrase_2', 'rop_phrase_3', 'rop_phrase_4']))
+    .all()
+  const ropPhraseMap: Record<string, string> = {}
+  for (const row of ropRows) ropPhraseMap[row.key] = (row.value ?? '').trim()
+  const ropPhrases: Record<string, string> = {
+    ROP1: ropPhraseMap['rop_phrase_1'] ?? '',
+    ROP2: ropPhraseMap['rop_phrase_2'] ?? '',
+    ROP3: ropPhraseMap['rop_phrase_3'] ?? '',
+    ROP4: ropPhraseMap['rop_phrase_4'] ?? ''
+  }
+
   // 7. Render. Шаблон використовує custom delimiters {{...}} (jinja-style),
   // бо так зроблено в оригіналі Alvares-AI.
   const buf = readFileSync(templatePath)
   const zip = new PizZip(buf)
+
+  // v1.7.1: pre-render видалення параграфів з {{ROPn}} коли фраза порожня.
+  // Той самий 3-step indexOf/lastIndexOf bounded search що для ACK_LIST
+  // post-render (v1.6.4). Не regex — non-greedy на multi-paragraph XML
+  // з'їдає неперебачний обсяг. `{{ROPn}}` зазвичай цілий у одному <w:t>
+  // (docxtemplater стандартно зклеює runs при render; для pre-render
+  // покладаємось на наш transform-скрипт, який зберігає placeholder
+  // цілим). Якщо placeholder split-up між runs — anchor=-1, no-op,
+  // параграф залишиться з '' через nullGetter (як до v1.7.1).
+  {
+    let xml = zip.file('word/document.xml')?.asText() ?? ''
+    let mutated = false
+    for (let i = 1; i <= 4; i++) {
+      if (ropPhrases[`ROP${i}`]) continue // фраза є — залишити параграф для render
+      const marker = `{{ROP${i}}}`
+      const anchor = xml.indexOf(marker)
+      if (anchor < 0) continue // placeholder відсутній у цьому Variant — OK
+      const paraStart = xml.lastIndexOf('<w:p ', anchor)
+      const paraEnd = xml.indexOf('</w:p>', anchor)
+      if (paraStart < 0 || paraEnd < 0) continue
+      const paraEndAfter = paraEnd + '</w:p>'.length
+      xml = xml.slice(0, paraStart) + xml.slice(paraEndAfter)
+      mutated = true
+    }
+    if (mutated) zip.file('word/document.xml', xml)
+  }
+
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
@@ -393,6 +439,7 @@ export function renderDispositionBuffer(
     ROP_FIRST: ropFirstText,
     ROP: ropList,
     ackListXml,
+    ...ropPhrases, // v1.7.1: ROP1..ROP4 (порожні параграфи вже видалено pre-render)
     ...roleTexts
   }
 

@@ -173,6 +173,14 @@ export default function Settings(): JSX.Element {
             Ролі у Бойовому розпорядженні
             <RightOutlined style={{ fontSize: 11 }} />
           </Button>
+          <Button
+            icon={<TagsOutlined />}
+            onClick={() => navigate('/settings/rop-phrases')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            Фрази для бойових завдань (РОП)
+            <RightOutlined style={{ fontSize: 11 }} />
+          </Button>
         </Space>
       </Card>
 
