@@ -527,27 +527,9 @@ export const settings = sqliteTable('settings', {
 
 // ==================== DGV (Грошове забезпечення) ====================
 
-// @deprecated v1.4.0: ДГВ-табель тепер виводиться з attendance ×
-// status_types.dgv_code (не з окремої таблиці). Цей table лишається
-// в схемі заради існуючих БД — DgvPage UI на момент v1.4.0 видалена,
-// тож запис у dgv_marks припиняється. Запланований DROP TABLE у v1.5.0
-// після підтвердженого live-запуску. Не використовувати в новому коді.
-export const dgvMarks = sqliteTable(
-  'dgv_marks',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    personnelId: integer('personnel_id')
-      .notNull()
-      .references(() => personnel.id),
-    date: text('date').notNull(),
-    dgvCode: text('dgv_code').notNull()
-  },
-  (table) => [
-    index('idx_dgv_marks_date').on(table.date),
-    index('idx_dgv_marks_personnel_date').on(table.personnelId, table.date),
-    uniqueIndex('idx_dgv_marks_unique').on(table.personnelId, table.date)
-  ]
-)
+// v1.7.4: `dgv_marks` таблицю видалено (DROP у dropDgvMarksTable).
+// ДГВ-табель з v1.4.0 виводиться з attendance × status_types.dgv_code.
+// dgvMonthMeta залишається — метадані ДГВ-рапорту.
 
 export const dgvMonthMeta = sqliteTable(
   'dgv_month_meta',

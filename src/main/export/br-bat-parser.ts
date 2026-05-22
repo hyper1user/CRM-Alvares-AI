@@ -14,14 +14,15 @@
  * `resources/br/locations.md` (КСП/н.п. за датою). Якщо для дати немає
  * запису — повертає null, і IPC handler має skip'нути цей день.
  *
- * v1.6.2 TODO: винести шлях у налаштування користувача (зараз hardcoded).
  */
 import * as XLSX from 'xlsx'
 import { existsSync } from 'fs'
 
 /**
- * Hardcoded шлях до xlsx-довідника БР батальйону.
- * v1.6.2: переїде у налаштування `/settings/integrations`.
+ * Legacy default-шлях до xlsx-довідника БР батальйону. З v1.7.2 фактичний
+ * шлях резолвиться через settings (`br_bat_xlsx_path`) у
+ * `document-service.ts:resolveBrBatXlsxPath()`. Цей константа залишається
+ * як fallback для stale-installs без міграції.
  */
 export const BR_BAT_XLSX_PATH = 'D:\\Project_CRM\\BR_4ShB.xlsx'
 

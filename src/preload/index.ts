@@ -211,22 +211,14 @@ const api = {
     return () => ipcRenderer.removeAllListeners('updater:status')
   },
 
-  // DGV (Грошове забезпечення)
-  dgvCodesList: () => ipcRenderer.invoke(IPC.DGV_CODES_LIST),
-  dgvGetMonth: (year: number, month: number) =>
-    ipcRenderer.invoke(IPC.DGV_GET_MONTH, year, month),
-  dgvSetDay: (personnelId: number, date: string, dgvCode: string) =>
-    ipcRenderer.invoke(IPC.DGV_SET_DAY, personnelId, date, dgvCode),
-  dgvClearDay: (personnelId: number, date: string) =>
-    ipcRenderer.invoke(IPC.DGV_CLEAR_DAY, personnelId, date),
-  dgvSetBulk: (personnelId: number, dateFrom: string, dateTo: string, dgvCode: string) =>
-    ipcRenderer.invoke(IPC.DGV_SET_BULK, personnelId, dateFrom, dateTo, dgvCode),
+  // DGV (Грошове забезпечення) — latent feature (UI з v1.4.0 видалено).
+  // v1.7.4: cleanup. Залишені тільки META-канали — пишуть у активну dgvMonthMeta,
+  // яку читає dgv-report-builder. Решта (codes/get/set/clear/bulk/export) видалена
+  // як residue (caller'и були у видаленій DgvPage).
   dgvMetaSet: (yearMonth: string, metaKey: string, metaValue: string) =>
     ipcRenderer.invoke(IPC.DGV_META_SET, yearMonth, metaKey, metaValue),
   dgvPersonMetaSet: (personnelId: number, yearMonth: string, metaKey: string, metaValue: string) =>
     ipcRenderer.invoke(IPC.DGV_PERSON_META_SET, personnelId, yearMonth, metaKey, metaValue),
-  dgvExportReport: (year: number, month: number) =>
-    ipcRenderer.invoke(IPC.DGV_EXPORT_REPORT, year, month),
 
   // Docs
   docsGetRoot: (): Promise<string | null> => ipcRenderer.invoke(IPC.DOCS_GET_ROOT),

@@ -644,6 +644,11 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
 
   // v1.6.0: persistent роль бійця у Бойовому розпорядженні.
   addBrRoleColumn(sqliteDb)
+
+  // v1.7.4: DROP TABLE dgv_marks (@deprecated з v1.4.0). DGV-табель тепер
+  // виводиться з attendance × status_types.dgv_code, окрема таблиця більше
+  // не запов нюється з v1.4.0. Після ~13 версій live-запуску — безпечно.
+  dropDgvMarksTable(sqliteDb)
 }
 
 function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
@@ -1158,6 +1163,22 @@ function addBrRoleColumn(sqliteDb: InstanceType<typeof Database>): void {
   if (!cols.some((c) => c.name === 'br_role')) {
     sqliteDb.exec('ALTER TABLE personnel ADD COLUMN br_role TEXT')
     console.log('[db] addBrRoleColumn: додано колонку br_role')
+  }
+}
+
+/**
+ * v1.7.4: DROP TABLE dgv_marks. Таблиця помічена @deprecated у v1.4.0
+ * (рефакторинг ДГВ-табелю через attendance × status_types.dgv_code).
+ * Запис припинено з v1.4.0; після 13 версій live-запуску безпечно
+ * прибрати фізично. Idempotent — DROP IF EXISTS.
+ */
+function dropDgvMarksTable(sqliteDb: InstanceType<typeof Database>): void {
+  const exists = sqliteDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='dgv_marks'")
+    .get()
+  if (exists) {
+    sqliteDb.exec('DROP TABLE IF EXISTS dgv_marks')
+    console.log('[db] dropDgvMarksTable: таблиця dgv_marks видалена (deprecated з v1.4.0)')
   }
 }
 
