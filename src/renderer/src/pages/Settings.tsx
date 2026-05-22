@@ -36,6 +36,9 @@ export default function Settings(): JSX.Element {
   // v1.7.2: шлях до BR_4ShB.xlsx (зовнішній довідник БР батальйону).
   const [brBatXlsxPath, setBrBatXlsxPath] = useState<string>('')
   const [brBatSaved, setBrBatSaved] = useState(false)
+  // v1.7.5: ім'я командира роти (для FormationReport підпис).
+  const [commandName, setCommandName] = useState<string>('')
+  const [commandSaved, setCommandSaved] = useState(false)
 
   useEffect(() => {
     window.api.docsGetRoot().then((val) => {
@@ -45,6 +48,11 @@ export default function Settings(): JSX.Element {
     // v1.7.2: load BR_4ShB.xlsx path
     window.api.settingsGet('br_bat_xlsx_path').then((val) => {
       if (val) setBrBatXlsxPath(val as string)
+    })
+
+    // v1.7.5: load command_name
+    window.api.settingsGet('command_name').then((val) => {
+      if (val) setCommandName(val as string)
     })
 
     // Get current updater status
@@ -87,6 +95,13 @@ export default function Settings(): JSX.Element {
     await window.api.settingsSet('br_bat_xlsx_path', brBatXlsxPath.trim())
     setBrBatSaved(true)
     message.success('Шлях BR_4ShB.xlsx збережено')
+  }
+
+  // v1.7.5: command_name save.
+  const handleSaveCommand = async (): Promise<void> => {
+    await window.api.settingsSet('command_name', commandName.trim())
+    setCommandSaved(true)
+    message.success('Ім\'я командира збережено')
   }
 
   const handleCheckUpdate = () => {
@@ -324,6 +339,39 @@ export default function Settings(): JSX.Element {
               message={<Text>Поточний шлях: <Text code>{brBatXlsxPath}</Text></Text>}
             />
           )}
+        </Card>
+
+        {/* v1.7.5: командир роти — підпис у стройовій записці */}
+        <Card
+          type="inner"
+          size="small"
+          style={{ marginTop: 12 }}
+          title={
+            <Space>
+              <TagsOutlined />
+              <span>Командир роти — підпис у стройовій записці</span>
+            </Space>
+          }
+        >
+          <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+            Ім'я та звання командира 12 ШР для відображення під «Командир 12 ШР» у Стройовій записці. Формат вільний — як хочеш бачити у документі (наприклад: <Text code>капітан ІВАНОВ Іван Іванович</Text>).
+          </Paragraph>
+
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              value={commandName}
+              onChange={(e) => { setCommandName(e.target.value); setCommandSaved(false) }}
+              placeholder="капітан ПРІЗВИЩЕ Ім'я По-батькові"
+              style={{ flex: 1 }}
+            />
+            <Button
+              type="primary"
+              icon={commandSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
+              onClick={handleSaveCommand}
+            >
+              {commandSaved ? 'Збережено' : 'Зберегти'}
+            </Button>
+          </Space.Compact>
         </Card>
       </Card>
 

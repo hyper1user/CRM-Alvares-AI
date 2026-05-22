@@ -38,8 +38,16 @@ export default function FormationReport(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [monthData, setMonthData] = useState<AttendanceMonthData | null>(null)
+  const [commanderName, setCommanderName] = useState<string>('')
   const globalSubdivision = useAppStore((s) => s.globalSubdivision)
   const { statusTypes } = useLookups()
+
+  // v1.7.5: ім'я командира роти з settings (адмінка `/settings`).
+  useEffect(() => {
+    window.api.settingsGet('command_name').then((v) => {
+      if (v) setCommanderName(v as string)
+    })
+  }, [])
 
   const fetchData = async (): Promise<void> => {
     setLoading(true)
@@ -235,9 +243,14 @@ export default function FormationReport(): JSX.Element {
                     paddingTop: 8,
                     fontFamily: 'var(--font-mono)',
                     fontSize: 12,
+                    minHeight: 16,
                   }}
                 >
-                  {/* TODO: settings → command_name */}
+                  {commanderName || (
+                    <span className="dim" style={{ fontSize: 10 }}>
+                      ⚙ Налаштування → Інтеграції
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
