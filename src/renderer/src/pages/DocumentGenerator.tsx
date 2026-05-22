@@ -12,7 +12,6 @@ import {
   Result,
   Spin,
   message,
-  notification,
   Tabs,
   DatePicker,
   Empty
@@ -110,87 +109,6 @@ export default function DocumentGenerator(): JSX.Element {
     () => templates.filter((t) => t.category === activeCategory),
     [templates, activeCategory]
   )
-
-  // v1.6.3 diagnostic — TODO видалити у v1.6.4 разом з broadcast у main.
-  // Subscribe раз на mount; показуємо лічильники, прислані з main після
-  // кожного рендеру disposition (включно з batch-циклом — буде по
-  // notification на день).
-  useEffect(() => {
-    const unsubscribe = window.api.onDispositionDiagnostic((raw) => {
-      const d = raw as {
-        isoDate: string
-        prevIsoDate: string
-        rowsCount: number
-        firstRop: number
-        continuingRop: number
-        byRoleTotal: number
-        positionPoolOrphans: number
-        prevRopSetSize: number
-        ackRowsCount: number
-        ackListXmlLength: number
-        ackListXmlPreview: string
-        sampleRows: Array<{
-          id: number
-          name: string
-          statusCode: string
-          brRole: string | null
-          prevWasRop: boolean
-        }>
-      }
-      notification.info({
-        message: `[BR diag] ${d.isoDate}`,
-        description: (
-          <div style={{ fontSize: 12, fontFamily: 'monospace' }}>
-            <div>rows={d.rowsCount} firstRop={d.firstRop} continuingRop={d.continuingRop}</div>
-            <div>byRole={d.byRoleTotal} positionPoolOrphans={d.positionPoolOrphans}</div>
-            <div>prevDay={d.prevIsoDate} prevRopSet={d.prevRopSetSize}</div>
-            <div style={{ marginTop: 6, fontWeight: 600 }}>ACK_LIST:</div>
-            <div>ackRows={d.ackRowsCount} xmlLen={d.ackListXmlLength}</div>
-            <div style={{ wordBreak: 'break-all', color: '#666' }}>{d.ackListXmlPreview}…</div>
-            <div style={{ marginTop: 8, fontWeight: 600 }}>Sample (перші {d.sampleRows.length}):</div>
-            {d.sampleRows.map((r) => (
-              <div key={r.id}>
-                {r.name} | statusCode={r.statusCode} | brRole={r.brRole ?? '—'} | prevRop={r.prevWasRop ? 'так' : 'ні'}
-              </div>
-            ))}
-          </div>
-        ),
-        duration: 30,
-        placement: 'topRight',
-        style: { width: 540 }
-      })
-    })
-    const unsubscribePost = window.api.onDispositionPostDiagnostic((raw) => {
-      const d = raw as {
-        isoDate: string
-        ackMutationStatus: 'replaced' | 'not_found' | 'empty_rows'
-        ackRowsCount: number
-        ackParaMatchLength: number
-        xmlSizeBefore: number
-        xmlSizeAfter: number
-      }
-      const isReplaced = d.ackMutationStatus === 'replaced'
-      const isMissing = d.ackMutationStatus === 'not_found'
-      notification[isMissing ? 'error' : isReplaced ? 'success' : 'info']({
-        message: `[BR post-render] ${d.isoDate}`,
-        description: (
-          <div style={{ fontSize: 12, fontFamily: 'monospace' }}>
-            <div>ACK mutation: <b>{d.ackMutationStatus}</b></div>
-            <div>ackRows: {d.ackRowsCount}</div>
-            <div>matched para length: {d.ackParaMatchLength}</div>
-            <div>XML size: {d.xmlSizeBefore} → {d.xmlSizeAfter}</div>
-          </div>
-        ),
-        duration: 30,
-        placement: 'topLeft',
-        style: { width: 420 }
-      })
-    })
-    return () => {
-      unsubscribe()
-      unsubscribePost()
-    }
-  }, [])
 
   // Load tags when DOCX template selected. Skip for special-pipeline
   // шаблонів (xlsx_dgv/docx_confirmation/docx_disposition — мають свої

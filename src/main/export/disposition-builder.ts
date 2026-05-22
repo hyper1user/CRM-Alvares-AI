@@ -10,13 +10,14 @@
  * backward compat single-day). Batch-генерація на період викликає
  * `renderDispositionBuffer()` напряму у циклі — без повторних діалогів.
  *
- * v1.6.1 hotfix#2: ACK_LIST через raw XML (`{{@ackListXml}}` у шаблоні).
- * docxtemplater з `linebreaks:true` обробляє лише `\n` (як `<w:br/>`),
- * але НЕ `\t` — tab залишався literal 0x09 у `<w:t>` і Word не активував
- * tab-stop+leader. Через `@`-prefix вставляємо повний `<w:p>` з runs +
- * `<w:tab/>` + `<w:br/>` напряму; шаблон має параграфський tab-stop
- * right=10205 з `w:leader="underscore"` — Word заповнить підкресленнями
- * від rank до 10205 і right-align'не name+SURNAME автоматично.
+ * v1.6.4: ACK_LIST через post-render XML mutation. docxtemplater з custom
+ * delimiters `{{...}}` НЕ активує raw-XML tag `{{@var}}` — обробляє його як
+ * звичайний key і повертає '' через nullGetter. Тому після `doc.render()`
+ * шукаємо параграф навколо унікальної tab-stop signature (`w:pos="10205"`)
+ * і вручну замінюємо його на повний `<w:p>` з runs + `<w:tab/>` + `<w:br/>`.
+ * Шаблон має параграфський tab-stop right=10205 з `w:leader="underscore"` —
+ * Word заповнить підкресленнями від rank до 10205 і right-align'не name+
+ * SURNAME автоматично.
  *
  * MVP-обмеження (розширення в v1.6.2+):
  *   * Auto-assign ролей за посадою (через `autoAssignRole()` з
@@ -34,7 +35,7 @@
  *   * ACK_LIST — список усіх задіяних ОС з рангами.
  */
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { dialog, app, BrowserWindow } from 'electron'
+import { dialog, app } from 'electron'
 import { join } from 'path'
 import PizZip from 'pizzip'
 import Docxtemplater from 'docxtemplater'
@@ -380,34 +381,6 @@ export function renderDispositionBuffer(
         })
         .join(';\n') + ';'
 
-  // v1.6.3 diagnostic: broadcast у renderer, бо main-process console.log
-  // юзеру не видно (DevTools показує лише renderer). Видалити у v1.6.4.
-  const diagnostic = {
-    isoDate,
-    prevIsoDate,
-    rowsCount: rows.length,
-    firstRop: firstRop.length,
-    continuingRop: continuingRop.length,
-    byRoleTotal: Array.from(byRole.values()).reduce((s, a) => s + a.length, 0),
-    positionPoolOrphans: positionPool.length,
-    prevRopSetSize: prevRopSet.size,
-    ackRowsCount: ackRows.length,
-    ackListXmlLength: ackListXml.length,
-    ackListXmlPreview: ackListXml.slice(0, 200),
-    // Перші 10 рядків — повна правда про те, що JOIN повернув:
-    sampleRows: rows.slice(0, 10).map((r) => ({
-      id: r.personnelId,
-      name: r.fullName,
-      statusCode: r.statusCode,
-      brRole: r.brRole,
-      prevWasRop: prevRopSet.has(r.personnelId)
-    }))
-  }
-  console.log('[disposition]', diagnostic)
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('diagnostic:disposition', diagnostic)
-  }
-
   const renderData: Record<string, string | boolean> = {
     dispositionNumber,
     dispositionDate,
@@ -439,44 +412,21 @@ export function renderDispositionBuffer(
   //   2. lastIndexOf('<w:p ', тут) — початок батьківського параграфа
   //   3. indexOf('</w:p>', тут) — кінець батьківського параграфа.
   const renderedZip = doc.getZip()
-  const renderedXmlBefore = renderedZip.file('word/document.xml')?.asText() ?? ''
+  const renderedXml = renderedZip.file('word/document.xml')?.asText() ?? ''
   const ACK_ANCHOR = 'w:pos="10205"'
-  const anchorIdx = renderedXmlBefore.indexOf(ACK_ANCHOR)
-  let ackMutationStatus: 'replaced' | 'not_found' | 'empty_rows' = 'not_found'
-  let renderedXmlAfter = renderedXmlBefore
-  let matchedParaLength = 0
-  if (anchorIdx >= 0) {
-    const paraStart = renderedXmlBefore.lastIndexOf('<w:p ', anchorIdx)
+  const anchorIdx = renderedXml.indexOf(ACK_ANCHOR)
+  if (anchorIdx >= 0 && ackRows.length > 0) {
+    const paraStart = renderedXml.lastIndexOf('<w:p ', anchorIdx)
     const paraEndMarker = '</w:p>'
-    const paraEndIdx = renderedXmlBefore.indexOf(paraEndMarker, anchorIdx)
+    const paraEndIdx = renderedXml.indexOf(paraEndMarker, anchorIdx)
     if (paraStart >= 0 && paraEndIdx > paraStart) {
       const paraEnd = paraEndIdx + paraEndMarker.length
-      matchedParaLength = paraEnd - paraStart
-      if (ackRows.length === 0) {
-        ackMutationStatus = 'empty_rows'
-      } else {
-        renderedXmlAfter =
-          renderedXmlBefore.slice(0, paraStart) +
-          ackListXml +
-          renderedXmlBefore.slice(paraEnd)
-        renderedZip.file('word/document.xml', renderedXmlAfter)
-        ackMutationStatus = 'replaced'
-      }
+      const mutated =
+        renderedXml.slice(0, paraStart) +
+        ackListXml +
+        renderedXml.slice(paraEnd)
+      renderedZip.file('word/document.xml', mutated)
     }
-  }
-
-  // v1.6.4 post-render diagnostic. Видалити у v1.6.5.
-  const postDiag = {
-    isoDate,
-    ackMutationStatus,
-    ackRowsCount: ackRows.length,
-    ackParaMatchLength: matchedParaLength,
-    xmlSizeBefore: renderedXmlBefore.length,
-    xmlSizeAfter: renderedXmlAfter.length
-  }
-  console.log('[disposition:post-render]', postDiag)
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('diagnostic:disposition-post', postDiag)
   }
 
   const buffer = renderedZip.generate({ type: 'nodebuffer' }) as Buffer
