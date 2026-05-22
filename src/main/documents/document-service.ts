@@ -28,8 +28,10 @@ import type {
   GeneratedDocumentListItem,
   DocumentListFilters,
   TemplateCategory,
-  BatchGenerationResult
+  BatchGenerationResult,
+  DispositionVariant
 } from '@shared/types/document'
+import { DISPOSITION_VARIANTS } from '@shared/types/document'
 
 // Paths
 function getTemplatesDir(): string {
@@ -266,7 +268,7 @@ const DEFAULT_TEMPLATES: TemplateDefinition[] = [
     templateType: 'docx_disposition',
     category: 'monetary',
     description: 'Бойове розпорядження командира 12 ШР на день виконання у форматі .docx',
-    fileName: 'disposition-template.docx',
+    fileName: 'disposition-Variant_A.docx',
     lines: []
   }
 ]
@@ -336,6 +338,30 @@ function getResourceTemplatePath(fileName: string): string | null {
     if (existsSync(p)) return p
   }
   return null
+}
+
+/**
+ * v1.7.0: resolve disposition template path by variant letter.
+ *
+ * - 'A'..'G' → resources/templates/disposition-Variant_<letter>.docx
+ * - 'random' → uniformly random letter A-G (нова дайс-кидка на кожен виклик —
+ *   у batch'у дає різний variant на кожен день, як юзер обрав)
+ * - undefined → 'A' (Standard, той самий що до v1.7.0)
+ *
+ * Math.random() rationale: lexical variation у БР — це reading-comfort feature,
+ * не cryptographic-property. Math.random достатньо.
+ */
+function resolveDispositionTemplate(variant?: DispositionVariant | 'random'): string {
+  const choice = variant ?? 'A'
+  const letter: DispositionVariant =
+    choice === 'random'
+      ? DISPOSITION_VARIANTS[Math.floor(Math.random() * DISPOSITION_VARIANTS.length)]
+      : choice
+  const resolved = getResourceTemplatePath(`disposition-Variant_${letter}.docx`)
+  if (!resolved) {
+    throw new Error(`Disposition template not found for variant ${letter}`)
+  }
+  return resolved
 }
 
 /**
@@ -681,9 +707,8 @@ export async function generateDispositionDocument(
   if (tmpl.templateType !== 'docx_disposition') {
     throw new Error(`Expected docx_disposition template, got: ${tmpl.templateType}`)
   }
-  if (!existsSync(tmpl.filePath)) {
-    throw new Error(`Template file not found: ${tmpl.filePath}`)
-  }
+  // v1.7.0: фактичний template-path резолвиться per-request за variant (A-G або
+  // random). tmpl.filePath більше не використовується для цього типу.
 
   // Період — обов'язково з v1.6.1; backward compat для legacy executionDate.
   const isoFrom =
@@ -735,7 +760,7 @@ export async function generateDispositionDocument(
       dateFrom,
       formatBrNumbers(entry),
       entry.date,
-      tmpl.filePath
+      resolveDispositionTemplate(request.variant)
     )
     if (!result.success || !result.filePath) {
       return { canceled: true }
@@ -814,7 +839,7 @@ export async function generateDispositionDocument(
       new Date(cursor),
       formatBrNumbers(entry),
       entry.date,
-      tmpl.filePath
+      resolveDispositionTemplate(request.variant)
     )
     const filename = buildDispositionFilename(rendered)
     const filePath = join(dirPath, filename)

@@ -55,3 +55,6 @@ builder-debug.yml
 
 # === TypeScript incremental cache ===
 *.tsbuildinfo
+
+# === Alvares-AI source (downloaded for analysis only) ===
+шаблони/alvares-source/

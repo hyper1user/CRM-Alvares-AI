@@ -14,7 +14,8 @@ import {
   message,
   Tabs,
   DatePicker,
-  Empty
+  Empty,
+  Select
 } from 'antd'
 import {
   FileTextOutlined,
@@ -39,7 +40,8 @@ import type {
   DocumentTemplate,
   GeneratedDocument,
   BatchGenerationResult,
-  TemplateCategory
+  TemplateCategory,
+  DispositionVariant
 } from '@shared/types/document'
 
 const { RangePicker } = DatePicker
@@ -91,6 +93,9 @@ export default function DocumentGenerator(): JSX.Element {
   // Default — [today, today]; для month-picker'а використовуємо лише .
   const [period, setPeriod] = useState<Dayjs>(() => dayjs())
   const [periodRange, setPeriodRange] = useState<[Dayjs, Dayjs]>(() => [dayjs(), dayjs()])
+  // v1.7.0: lexical-варіант для docx_disposition. Default 'A' (Standard, той
+  // самий до v1.7.0). 'random' обирає випадковий A-G на кожен день batch'у.
+  const [dispositionVariant, setDispositionVariant] = useState<DispositionVariant | 'random'>('A')
   const [generating, setGenerating] = useState(false)
   const [result, setResult] = useState<GeneratedDocument | null>(null)
   const [batchResult, setBatchResult] = useState<BatchGenerationResult | null>(null)
@@ -133,6 +138,7 @@ export default function DocumentGenerator(): JSX.Element {
     setBatchResult(null)
     setPeriod(dayjs())
     setPeriodRange([dayjs(), dayjs()])
+    setDispositionVariant('A')
     form.resetFields()
     setCurrent(1)
   }
@@ -157,7 +163,8 @@ export default function DocumentGenerator(): JSX.Element {
           fields: {
             executionDateFrom: from.format('YYYY-MM-DD'),
             executionDateTo: to.format('YYYY-MM-DD')
-          }
+          },
+          variant: dispositionVariant
         }
         const response = await window.api.documentsGenerateDisposition(data)
         if (response?.canceled) {
@@ -371,6 +378,27 @@ export default function DocumentGenerator(): JSX.Element {
                   style={{ width: '100%' }}
                   suffixIcon={<CalendarOutlined />}
                   allowClear={false}
+                />
+              </Form.Item>
+
+              <Form.Item
+                label="Варіант формулювання"
+                tooltip="Lexical-варіанти завдань ролям — різні формулювання обходу позицій, спостереження, готовності. Random обирає випадковий A-G на кожен день періоду."
+              >
+                <Select
+                  value={dispositionVariant}
+                  onChange={(v: DispositionVariant | 'random') => setDispositionVariant(v)}
+                  style={{ width: '100%' }}
+                  options={[
+                    { value: 'A', label: 'Стандартний (Variant A)' },
+                    { value: 'B', label: 'Variant B' },
+                    { value: 'C', label: 'Variant C' },
+                    { value: 'D', label: 'Variant D' },
+                    { value: 'E', label: 'Variant E' },
+                    { value: 'F', label: 'Variant F (скорочений)' },
+                    { value: 'G', label: 'Variant G' },
+                    { value: 'random', label: 'Випадковий (різний на кожен день)' }
+                  ]}
                 />
               </Form.Item>
 

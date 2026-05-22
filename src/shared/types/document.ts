@@ -144,7 +144,16 @@ export interface GenerateDocumentRequest {
   title: string
   personnelIds?: number[]
   fields: Record<string, string>
+  /**
+   * v1.7.0: для docx_disposition — вибір lexical-варіанту Бойового
+   * розпорядження. 'A'-'G' — фіксований варіант, 'random' — випадковий
+   * на КОЖЕН день batch'у. Default 'A' (Standard, той самий що до v1.7.0).
+   */
+  variant?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'random'
 }
+
+export const DISPOSITION_VARIANTS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const
+export type DispositionVariant = (typeof DISPOSITION_VARIANTS)[number]
 
 export interface TemplateInfo {
   template: DocumentTemplate

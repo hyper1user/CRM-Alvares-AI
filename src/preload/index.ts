@@ -151,10 +151,12 @@ const api = {
   }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_DOCX_CONFIRMATION, data),
   // v1.6.0: docx_disposition (Бойове розпорядження). fields={
   // executionDate (YYYY-MM-DD), brBatNumber, brBatDate (DD.MM.YYYY)}.
+  // v1.7.0: + variant ('A'..'G' | 'random') для lexical-варіанту.
   documentsGenerateDisposition: (data: {
     templateId: number
     title: string
     fields: Record<string, string>
+    variant?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'random'
   }) => ipcRenderer.invoke(IPC.DOCUMENTS_GENERATE_DOCX_DISPOSITION, data),
   documentsList: (filters?: { documentType?: string; search?: string }) =>
     ipcRenderer.invoke(IPC.DOCUMENTS_LIST, filters),
