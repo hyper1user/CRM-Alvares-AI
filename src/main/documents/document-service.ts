@@ -341,6 +341,28 @@ function getResourceTemplatePath(fileName: string): string | null {
 }
 
 /**
+ * v1.7.2: resolve BR_4ShB.xlsx path. Spершу читає `br_bat_xlsx_path` з
+ * settings; якщо не задано — fallback на BR_BAT_XLSX_PATH (legacy hardcoded).
+ *
+ * Тому stale-installs продовжують працювати з `D:\Project_CRM\BR_4ShB.xlsx`
+ * без міграції; нові установки задають свій шлях через `/settings`.
+ */
+function resolveBrBatXlsxPath(): string {
+  try {
+    const db = getDatabase()
+    const row = db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'br_bat_xlsx_path'))
+      .get()
+    if (row?.value?.trim()) return row.value.trim()
+  } catch {
+    // No-op: if DB call fails, fall back to default.
+  }
+  return BR_BAT_XLSX_PATH
+}
+
+/**
  * v1.7.0: resolve disposition template path by variant letter.
  *
  * - 'A'..'G' → resources/templates/disposition-Variant_<letter>.docx
@@ -739,10 +761,13 @@ export async function generateDispositionDocument(
   }
 
   // Lookup-by-date з зовнішнього xlsx (один раз на запит — для single і period).
-  const brBatMap = parseBrBatXlsx(BR_BAT_XLSX_PATH)
+  // v1.7.2: шлях резолвиться з settings (`br_bat_xlsx_path`), fallback —
+  // legacy hardcoded `D:\Project_CRM\BR_4ShB.xlsx`.
+  const brBatXlsxPath = resolveBrBatXlsxPath()
+  const brBatMap = parseBrBatXlsx(brBatXlsxPath)
   if (brBatMap.size === 0) {
     throw new Error(
-      `Не вдалося прочитати ${BR_BAT_XLSX_PATH} (файл відсутній або порожній)`
+      `Не вдалося прочитати ${brBatXlsxPath} (файл відсутній або порожній). Перевір шлях у Налаштування → Інтеграції.`
     )
   }
 

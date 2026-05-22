@@ -10,7 +10,9 @@ import {
   WarningOutlined,
   InfoCircleOutlined,
   TagsOutlined,
-  RightOutlined
+  RightOutlined,
+  FileExcelOutlined,
+  LinkOutlined
 } from '@ant-design/icons'
 import UnitAboutCard from '../components/layout/UnitAboutCard'
 
@@ -31,10 +33,18 @@ export default function Settings(): JSX.Element {
   const [docsRoot, setDocsRoot] = useState<string>('')
   const [saved, setSaved] = useState(false)
   const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus>({ state: 'idle' })
+  // v1.7.2: шлях до BR_4ShB.xlsx (зовнішній довідник БР батальйону).
+  const [brBatXlsxPath, setBrBatXlsxPath] = useState<string>('')
+  const [brBatSaved, setBrBatSaved] = useState(false)
 
   useEffect(() => {
     window.api.docsGetRoot().then((val) => {
       if (val) setDocsRoot(val)
+    })
+
+    // v1.7.2: load BR_4ShB.xlsx path
+    window.api.settingsGet('br_bat_xlsx_path').then((val) => {
+      if (val) setBrBatXlsxPath(val as string)
     })
 
     // Get current updater status
@@ -60,6 +70,23 @@ export default function Settings(): JSX.Element {
     await window.api.docsSetRoot(docsRoot.trim())
     setSaved(true)
     message.success('Шлях збережено')
+  }
+
+  // v1.7.2: BR_4ShB.xlsx file-picker + save.
+  const handleBrowseBrBat = async (): Promise<void> => {
+    const path = await window.api.openFileDialog([
+      { name: 'Excel-таблиця', extensions: ['xlsx', 'xls'] }
+    ])
+    if (path) {
+      setBrBatXlsxPath(path)
+      setBrBatSaved(false)
+    }
+  }
+  const handleSaveBrBat = async (): Promise<void> => {
+    if (!brBatXlsxPath.trim()) return
+    await window.api.settingsSet('br_bat_xlsx_path', brBatXlsxPath.trim())
+    setBrBatSaved(true)
+    message.success('Шлях BR_4ShB.xlsx збережено')
   }
 
   const handleCheckUpdate = () => {
@@ -238,6 +265,66 @@ export default function Settings(): JSX.Element {
             message={<Text>Поточний шлях: <Text code>{docsRoot}</Text></Text>}
           />
         )}
+      </Card>
+
+      {/* v1.7.2: Інтеграції — зовнішні файли/системи */}
+      <Card
+        title={
+          <Space>
+            <LinkOutlined />
+            <span>Інтеграції</span>
+          </Space>
+        }
+      >
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          Шляхи до зовнішніх файлів, на які покладається додаток.
+        </Paragraph>
+
+        <Card
+          type="inner"
+          size="small"
+          title={
+            <Space>
+              <FileExcelOutlined style={{ color: '#1a7f37' }} />
+              <span>BR_4ShB.xlsx — довідник БР батальйону</span>
+            </Space>
+          }
+        >
+          <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+            Excel-таблиця з номерами БР командира 4 ШБ за датами. Використовується при генерації Бойового розпорядження роти ({'{{бр}}'} та {'{{дата_бр}}'} плейсхолдери). До 4 БР на день у колонках A-B, D-E, G-H, J-K.
+            <br />
+            Якщо шлях не задано — використовується legacy default <Text code>D:\Project_CRM\BR_4ShB.xlsx</Text>.
+          </Paragraph>
+
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              value={brBatXlsxPath}
+              onChange={(e) => { setBrBatXlsxPath(e.target.value); setBrBatSaved(false) }}
+              placeholder="D:\Project_CRM\BR_4ShB.xlsx"
+              style={{ flex: 1 }}
+            />
+            <Button icon={<FolderOpenOutlined />} onClick={handleBrowseBrBat}>
+              Вибрати
+            </Button>
+            <Button
+              type="primary"
+              icon={brBatSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
+              onClick={handleSaveBrBat}
+              disabled={!brBatXlsxPath.trim()}
+            >
+              {brBatSaved ? 'Збережено' : 'Зберегти'}
+            </Button>
+          </Space.Compact>
+
+          {brBatXlsxPath && (
+            <Alert
+              style={{ marginTop: 12 }}
+              type="info"
+              showIcon
+              message={<Text>Поточний шлях: <Text code>{brBatXlsxPath}</Text></Text>}
+            />
+          )}
+        </Card>
       </Card>
 
       {/* About */}
