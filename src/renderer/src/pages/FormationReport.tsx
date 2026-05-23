@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useLookups } from '../hooks/useLookups'
+import { useSetting } from '../hooks/useSetting'
 import { useAppStore } from '../stores/app.store'
 import type { AttendanceMonthData } from '@shared/types/attendance'
 
@@ -38,16 +39,9 @@ export default function FormationReport(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [monthData, setMonthData] = useState<AttendanceMonthData | null>(null)
-  const [commanderName, setCommanderName] = useState<string>('')
   const globalSubdivision = useAppStore((s) => s.globalSubdivision)
   const { statusTypes } = useLookups()
-
-  // v1.7.5: ім'я командира роти з settings (адмінка `/settings`).
-  useEffect(() => {
-    window.api.settingsGet('command_name').then((v) => {
-      if (v) setCommanderName(v as string)
-    })
-  }, [])
+  const { value: commanderName } = useSetting('command_name')
 
   const fetchData = async (): Promise<void> => {
     setLoading(true)

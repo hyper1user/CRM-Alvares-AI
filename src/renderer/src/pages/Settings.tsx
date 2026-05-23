@@ -15,6 +15,7 @@ import {
   LinkOutlined
 } from '@ant-design/icons'
 import UnitAboutCard from '../components/layout/UnitAboutCard'
+import { useSetting } from '../hooks/useSetting'
 
 const { Paragraph, Text } = Typography
 
@@ -33,26 +34,14 @@ export default function Settings(): JSX.Element {
   const [docsRoot, setDocsRoot] = useState<string>('')
   const [saved, setSaved] = useState(false)
   const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus>({ state: 'idle' })
-  // v1.7.2: шлях до BR_4ShB.xlsx (зовнішній довідник БР батальйону).
-  const [brBatXlsxPath, setBrBatXlsxPath] = useState<string>('')
-  const [brBatSaved, setBrBatSaved] = useState(false)
-  // v1.7.5: ім'я командира роти (для FormationReport підпис).
-  const [commandName, setCommandName] = useState<string>('')
-  const [commandSaved, setCommandSaved] = useState(false)
+  // v1.7.6: settings-keys через спільний useSetting (раніше — окремі
+  // useState/useEffect/handleSave per ключ).
+  const brBat = useSetting('br_bat_xlsx_path')
+  const commander = useSetting('command_name')
 
   useEffect(() => {
     window.api.docsGetRoot().then((val) => {
       if (val) setDocsRoot(val)
-    })
-
-    // v1.7.2: load BR_4ShB.xlsx path
-    window.api.settingsGet('br_bat_xlsx_path').then((val) => {
-      if (val) setBrBatXlsxPath(val as string)
-    })
-
-    // v1.7.5: load command_name
-    window.api.settingsGet('command_name').then((val) => {
-      if (val) setCommandName(val as string)
     })
 
     // Get current updater status
@@ -80,27 +69,23 @@ export default function Settings(): JSX.Element {
     message.success('Шлях збережено')
   }
 
-  // v1.7.2: BR_4ShB.xlsx file-picker + save.
+  // v1.7.2: BR_4ShB.xlsx file-picker (save сам — через useSetting).
   const handleBrowseBrBat = async (): Promise<void> => {
     const path = await window.api.openFileDialog([
       { name: 'Excel-таблиця', extensions: ['xlsx', 'xls'] }
     ])
-    if (path) {
-      setBrBatXlsxPath(path)
-      setBrBatSaved(false)
-    }
+    if (path) brBat.setDraft(path)
   }
   const handleSaveBrBat = async (): Promise<void> => {
-    if (!brBatXlsxPath.trim()) return
-    await window.api.settingsSet('br_bat_xlsx_path', brBatXlsxPath.trim())
-    setBrBatSaved(true)
+    const trimmed = brBat.draft.trim()
+    if (!trimmed) return
+    await brBat.save(trimmed)
     message.success('Шлях BR_4ShB.xlsx збережено')
   }
 
   // v1.7.5: command_name save.
   const handleSaveCommand = async (): Promise<void> => {
-    await window.api.settingsSet('command_name', commandName.trim())
-    setCommandSaved(true)
+    await commander.save(commander.draft.trim())
     message.success('Ім\'я командира збережено')
   }
 
@@ -313,8 +298,8 @@ export default function Settings(): JSX.Element {
 
           <Space.Compact style={{ width: '100%' }}>
             <Input
-              value={brBatXlsxPath}
-              onChange={(e) => { setBrBatXlsxPath(e.target.value); setBrBatSaved(false) }}
+              value={brBat.draft}
+              onChange={(e) => brBat.setDraft(e.target.value)}
               placeholder="D:\Project_CRM\BR_4ShB.xlsx"
               style={{ flex: 1 }}
             />
@@ -323,20 +308,20 @@ export default function Settings(): JSX.Element {
             </Button>
             <Button
               type="primary"
-              icon={brBatSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
+              icon={brBat.isSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
               onClick={handleSaveBrBat}
-              disabled={!brBatXlsxPath.trim()}
+              disabled={!brBat.draft.trim()}
             >
-              {brBatSaved ? 'Збережено' : 'Зберегти'}
+              {brBat.isSaved ? 'Збережено' : 'Зберегти'}
             </Button>
           </Space.Compact>
 
-          {brBatXlsxPath && (
+          {brBat.draft && (
             <Alert
               style={{ marginTop: 12 }}
               type="info"
               showIcon
-              message={<Text>Поточний шлях: <Text code>{brBatXlsxPath}</Text></Text>}
+              message={<Text>Поточний шлях: <Text code>{brBat.draft}</Text></Text>}
             />
           )}
         </Card>
@@ -359,17 +344,17 @@ export default function Settings(): JSX.Element {
 
           <Space.Compact style={{ width: '100%' }}>
             <Input
-              value={commandName}
-              onChange={(e) => { setCommandName(e.target.value); setCommandSaved(false) }}
+              value={commander.draft}
+              onChange={(e) => commander.setDraft(e.target.value)}
               placeholder="капітан ПРІЗВИЩЕ Ім'я По-батькові"
               style={{ flex: 1 }}
             />
             <Button
               type="primary"
-              icon={commandSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
+              icon={commander.isSaved ? <CheckCircleOutlined /> : <SettingOutlined />}
               onClick={handleSaveCommand}
             >
-              {commandSaved ? 'Збережено' : 'Зберегти'}
+              {commander.isSaved ? 'Збережено' : 'Зберегти'}
             </Button>
           </Space.Compact>
         </Card>
