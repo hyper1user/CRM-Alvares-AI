@@ -581,6 +581,12 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // ДО fixExcludedFromMovements, щоб той підхопив виправлені рядки.
   normalizeMovementOrderTypes(sqliteDb)
 
+  // v1.7.7: schema-міграція має виконатись ДО data-міграцій, бо вони пишуть
+  // у excluded_at. Для БД <v0.9.3 CREATE TABLE IF NOT EXISTS лишає таблицю
+  // без колонки → fixExcludedFromMovements падає з "no such column" і
+  // блокує запуск (вікно не створюється). Ідемпотентно — для нових БД no-op.
+  addExcludedAtColumn(sqliteDb)
+
   // v0.8.6: для тих, кого раніше виключили через wizard переміщень
   // (orderType='Виключення'), але БД залишила personnel.status='active'
   // через відсутню гілку в MOVEMENTS_CREATE — застосувати правильний стан.
@@ -597,10 +603,6 @@ function createTables(sqliteDb: InstanceType<typeof Database>): void {
   // (фільтр subdivision='Г-3'). Відновлюємо Г-3 для них (додаток
   // розрахований на одну роту — інших значень бути не може).
   restoreSubdivisionForExcluded(sqliteDb)
-
-  // v0.9.3: окреме поле excluded_at для стабільного сортування виключених
-  // (раніше desc(updatedAt) — «дрейфувало» при правці картки).
-  addExcludedAtColumn(sqliteDb)
 
   // v0.9.6: enrich excluded_at для існуючих виключених — взяти точну дату
   // наказу з активного руху 'Виключення' замість updated_at (з v0.9.3 backfill).
