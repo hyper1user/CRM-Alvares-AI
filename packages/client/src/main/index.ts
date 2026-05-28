@@ -6,6 +6,12 @@ import { initDatabase, closeDatabase } from './db/connection'
 import { registerIpcHandlers } from './ipc'
 import { initAutoUpdater } from './updater'
 
+// Dev userData consistency: package name стало @alvares/client після monorepo
+// refactor (PR #3), що змінило app.getPath('userData') → %APPDATA%/@alvares/client/.
+// Повертаємо історичну назву ejoos-plus тільки у dev, щоб не втратити локальну БД.
+// Production не зачеплено — productName=АльваресAI у electron-builder.yml.
+if (is.dev) app.setName('ejoos-plus')
+
 // Fix flickering on Windows — disable GPU acceleration if problematic
 app.commandLine.appendSwitch('disable-gpu-compositing')
 

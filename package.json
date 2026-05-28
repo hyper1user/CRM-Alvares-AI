@@ -11,7 +11,10 @@
     "start": "pnpm --filter @alvares/client start",
     "db:generate": "pnpm --filter @alvares/client db:generate",
     "db:migrate": "pnpm --filter @alvares/client db:migrate",
-    "postinstall": "node packages/client/build/fix-readable-stream.cjs"
+    "postinstall": "pnpm --filter @alvares/client exec electron-rebuild -f -w better-sqlite3 && node packages/client/build/fix-readable-stream.cjs"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
