@@ -8,7 +8,7 @@ import { getDatabase } from '../db/connection'
 // v1.4.0: dgvMarks більше не використовується (джерело — attendance ×
 // status_types.dgv_code). dgvMonthMeta лишається — це метадані рапорту
 // (підстави виплат, покарання), які не виводяться з attendance.
-import { personnel, ranks, positions, attendance, statusTypes, dgvMonthMeta } from '../db/schema'
+import { personnel, ranks, positions, attendance, statusTypes, dgvMonthMeta } from '@shared/db/schema'
 import { eq, and, asc, isNotNull, sql } from 'drizzle-orm'
 import { DGV_CODE_MAP, PAY_100_CODES } from '@shared/enums/dgv-codes'
 import type { DgvPeriod } from '@shared/types/dgv'

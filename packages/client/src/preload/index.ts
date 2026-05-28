@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC } from '../shared/ipc-channels'
+import { IPC } from '@shared/ipc-channels'
 
 const api = {
   // App

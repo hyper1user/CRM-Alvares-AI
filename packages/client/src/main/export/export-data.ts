@@ -2,7 +2,7 @@
  * Fetch all data from DB for export, resolving lookups (id→name)
  */
 import { getDatabase } from '../db/connection'
-import { personnel, positions, movements, statusHistory, subdivisions } from '../db/schema'
+import { personnel, positions, movements, statusHistory, subdivisions } from '@shared/db/schema'
 import { eq } from 'drizzle-orm'
 import { buildReverseLookupMaps, type ReverseLookupMaps } from './lookup-maps'
 import { isoToDisplay } from './format-utils'

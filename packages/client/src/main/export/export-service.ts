@@ -4,7 +4,7 @@
 import { dialog } from 'electron'
 import { writeFile } from 'fs/promises'
 import { getDatabase } from '../db/connection'
-import { auditLog } from '../db/schema'
+import { auditLog } from '@shared/db/schema'
 import { fetchExportData } from './export-data'
 import { buildEjoosWorkbook } from './ejoos-builder'
 import { buildCsvContent } from './csv-builder'

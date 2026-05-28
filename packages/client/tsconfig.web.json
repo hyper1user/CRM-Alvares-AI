@@ -2,7 +2,7 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
     "src/renderer/src/**/*",
-    "src/shared/**/*",
+    "../shared/src/**/*",
     "src/preload/*.d.ts"
   ],
   "compilerOptions": {
@@ -12,7 +12,7 @@
     "baseUrl": ".",
     "paths": {
       "@renderer/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["../shared/src/*"]
     }
   }
 }

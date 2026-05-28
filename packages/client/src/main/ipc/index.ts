@@ -26,7 +26,7 @@ import {
   documentTemplates,
   auditLog,
   dgvMonthMeta
-} from '../db/schema'
+} from '@shared/db/schema'
 import { eq, and, like, or, asc, desc, sql, gte, lte } from 'drizzle-orm'
 import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema, statusTypeCreateSchema, statusTypeUpdateSchema } from '@shared/validators'
 import { parseEjoosFile } from '../import/ejoos-parser'

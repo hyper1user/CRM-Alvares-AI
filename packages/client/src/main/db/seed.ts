@@ -1,5 +1,5 @@
 import { type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import * as schema from './schema'
+import * as schema from '@shared/db/schema'
 import {
   ranks,
   statusTypes,
@@ -16,7 +16,7 @@ import {
   leaveTypes,
   leaveTypeAliases,
   settings
-} from './schema'
+} from '@shared/db/schema'
 import { RANKS } from '@shared/enums/ranks'
 import { STATUS_TYPES } from '@shared/enums/status-codes'
 import {

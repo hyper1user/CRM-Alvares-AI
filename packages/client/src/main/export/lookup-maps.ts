@@ -9,7 +9,7 @@ import {
   contractTypes,
   educationLevels,
   tccOffices
-} from '../db/schema'
+} from '@shared/db/schema'
 
 export interface ReverseLookupMaps {
   rankIdToName: Map<number, string>

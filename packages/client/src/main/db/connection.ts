@@ -3,7 +3,7 @@ import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
-import * as schema from './schema'
+import * as schema from '@shared/db/schema'
 import { seedDatabase } from './seed'
 
 export type AppDatabase = BetterSQLite3Database<typeof schema>

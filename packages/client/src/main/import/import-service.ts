@@ -14,7 +14,7 @@ import {
   educationLevels,
   contractTypes,
   auditLog
-} from '../db/schema'
+} from '@shared/db/schema'
 import { eq, sql } from 'drizzle-orm'
 import type { ParseResult, ImportResult, DataImportResult, ParsedDataRecord, ImpulseImportResult } from '@shared/types/import'
 import type { ParsedImpulseRecord } from './impulse-parser'
