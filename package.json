@@ -1,6 +1,6 @@
 {
   "name": "alvares-monorepo",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "description": "АльваресAI — Monorepo для Electron клієнта та (майбутнього) сервера",
   "private": true,
   "author": "12 ШР",
