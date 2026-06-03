@@ -11,6 +11,7 @@
     "./types/*": "./src/types/*.ts",
     "./enums/*": "./src/enums/*.ts",
     "./utils/*": "./src/utils/*.ts",
+    "./ids/uuid-v7": "./src/ids/uuid-v7.ts",
     "./validators": "./src/validators.ts",
     "./ipc-channels": "./src/ipc-channels.ts",
     "./db/schema": "./src/db/schema.ts"

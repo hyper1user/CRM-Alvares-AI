@@ -2,3 +2,4 @@
 // Використовується сервером у v2.0; клієнт ходить через alias @shared/*.
 export * from './validators'
 export * from './ipc-channels'
+export * from './ids/uuid-v7'
