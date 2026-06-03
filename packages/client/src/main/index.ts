@@ -122,8 +122,13 @@ app.whenReady().then(() => {
 
   // Ініціалізація БД
   startupLog('db:init:start')
-  initDatabase()
-  startupLog('db:init:end')
+  try {
+    initDatabase()
+    startupLog('db:init:end')
+  } catch (error) {
+    startupLog(`db:init:error ${error instanceof Error ? error.message : String(error)}`)
+    console.error('[main] database initialization failed:', error)
+  }
 
   // Auto-updater (only in production)
   startupLog('updater:init:start')

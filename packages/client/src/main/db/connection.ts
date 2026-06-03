@@ -63,7 +63,15 @@ export function initDatabase(): AppDatabase {
 }
 
 export function getDatabase(): AppDatabase {
-  if (!db) throw new Error('Database not initialized. Call initDatabase() first.')
+  if (!db) {
+    dbStartupLog('db:lazy-init:start')
+    try {
+      return initDatabase()
+    } catch (error) {
+      dbStartupLog(`db:lazy-init:error ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
+  }
   return db
 }
 
