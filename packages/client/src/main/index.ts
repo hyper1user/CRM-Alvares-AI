@@ -1,16 +1,15 @@
 import { app, shell, BrowserWindow, protocol, net } from 'electron'
 import { join, resolve, normalize } from 'path'
+import { appendFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase } from './db/connection'
 import { registerIpcHandlers } from './ipc'
 import { initAutoUpdater } from './updater'
 
-// Dev userData consistency: package name стало @alvares/client після monorepo
-// refactor (PR #3), що змінило app.getPath('userData') → %APPDATA%/@alvares/client/.
-// Повертаємо історичну назву ejoos-plus тільки у dev, щоб не втратити локальну БД.
-// Production не зачеплено — productName=АльваресAI у electron-builder.yml.
-if (is.dev) app.setName('ejoos-plus')
+// Keep userData stable after the monorepo package rename (@alvares/client).
+// The historical production data lives in %APPDATA%/ejoos-plus.
+app.setName('ejoos-plus')
 
 // Fix flickering on Windows — disable GPU acceleration if problematic
 app.commandLine.appendSwitch('disable-gpu-compositing')
@@ -23,7 +22,16 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 
+function startupLog(message: string): void {
+  try {
+    appendFileSync(join(app.getPath('userData'), 'startup.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Best-effort startup diagnostics only.
+  }
+}
+
 function createWindow(): void {
+  startupLog('createWindow:start')
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -39,18 +47,22 @@ function createWindow(): void {
       sandbox: false
     }
   })
+  startupLog('createWindow:created')
 
   // Show only after DOM is fully painted to avoid white flash
   mainWindow.webContents.on('did-finish-load', () => {
+    startupLog('renderer:did-finish-load')
     setTimeout(() => mainWindow.show(), 100)
   })
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    startupLog(`renderer:did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`)
     console.error('[main] renderer did-fail-load:', errorCode, errorDescription, validatedURL)
     if (!mainWindow?.isDestroyed()) mainWindow.show()
   })
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    startupLog(`renderer:gone ${details.reason} ${details.exitCode}`)
     console.error('[main] renderer process gone:', details.reason, details.exitCode)
   })
 
@@ -64,6 +76,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('closed', () => {
+    startupLog('window:closed')
     mainWindow = null
   })
 
@@ -72,9 +85,11 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  startupLog('createWindow:load-started')
 }
 
 app.whenReady().then(() => {
+  startupLog('app:ready')
   electronApp.setAppUserModelId('com.ejoos-plus')
 
   app.on('browser-window-created', (_, window) => {
@@ -106,10 +121,14 @@ app.whenReady().then(() => {
   createWindow()
 
   // Ініціалізація БД
+  startupLog('db:init:start')
   initDatabase()
+  startupLog('db:init:end')
 
   // Auto-updater (only in production)
+  startupLog('updater:init:start')
   initAutoUpdater()
+  startupLog('updater:init:end')
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import * as schema from '@shared/db/schema'
 import { seedDatabase } from './seed'
 
@@ -10,6 +10,14 @@ export type AppDatabase = BetterSQLite3Database<typeof schema>
 
 let db: AppDatabase | null = null
 let sqlite: InstanceType<typeof Database> | null = null
+
+function dbStartupLog(message: string): void {
+  try {
+    appendFileSync(join(app.getPath('userData'), 'startup.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Best-effort startup diagnostics only.
+  }
+}
 
 function getDbPath(): string {
   const userDataPath = app.getPath('userData')
@@ -24,22 +32,31 @@ export function initDatabase(): AppDatabase {
   if (db) return db
 
   const dbPath = getDbPath()
+  dbStartupLog(`db:path ${dbPath}`)
   console.log(`[db] Шлях до БД: ${dbPath}`)
 
+  dbStartupLog('db:open:start')
   sqlite = new Database(dbPath)
+  dbStartupLog('db:open:end')
 
   // Оптимізації SQLite
+  dbStartupLog('db:pragma:start')
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
   sqlite.pragma('busy_timeout = 5000')
+  dbStartupLog('db:pragma:end')
 
   db = drizzle<typeof schema>(sqlite, { schema })
 
   // Створюємо таблиці якщо їх немає
+  dbStartupLog('db:createTables:start')
   createTables(sqlite)
+  dbStartupLog('db:createTables:end')
 
   // Seed data
+  dbStartupLog('db:seed:start')
   seedDatabase(db)
+  dbStartupLog('db:seed:end')
 
   console.log('[db] База даних ініціалізована')
   return db

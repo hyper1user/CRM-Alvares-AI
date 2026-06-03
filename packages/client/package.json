@@ -1,6 +1,6 @@
 {
   "name": "@alvares/client",
-  "version": "1.7.17",
+  "version": "1.7.18",
   "description": "АльваресAI — Система обліку особового складу (Electron client)",
   "main": "./out/main/index.js",
   "author": "12 ШР",
@@ -29,6 +29,7 @@
     "argparse": "^2.0.1",
     "archiver": "^5.0.0",
     "better-sqlite3": "^11.8.1",
+    "bindings": "^1.5.0",
     "builder-util-runtime": "^9.5.1",
     "dayjs": "^1.11.13",
     "debug": "^4.3.4",
@@ -37,6 +38,7 @@
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "fast-csv": "^4.3.1",
+    "file-uri-to-path": "^1.0.0",
     "graceful-fs": "^4.2.0",
     "jsonfile": "^6.0.1",
     "jszip": "^3.10.1",
