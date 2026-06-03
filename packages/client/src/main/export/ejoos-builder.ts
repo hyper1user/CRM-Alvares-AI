@@ -2,7 +2,7 @@
  * Build ExcelJS Workbook with 5 sheets matching EJOOS format
  * Sheets: тПосади, ООС, Виключені, тПереміщення, тСтатусиІсторія
  */
-import ExcelJS from 'exceljs'
+import ExcelJS from 'exceljs/dist/exceljs.js'
 import type { ExportData, ExportPersonnel, ExportMovement, ExportStatus } from './export-data'
 
 // ==================== HEADER STYLES ====================

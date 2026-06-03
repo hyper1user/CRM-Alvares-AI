@@ -2,7 +2,7 @@
  * Build DGV (Додаткова грошова винагорода) report as .xlsx
  * 4 sections: 100k, 30k, не виплачувати (п.6), не брав участі (п.7)
  */
-import ExcelJS from 'exceljs'
+import ExcelJS from 'exceljs/dist/exceljs.js'
 import { dialog } from 'electron'
 import { getDatabase } from '../db/connection'
 // v1.4.0: dgvMarks більше не використовується (джерело — attendance ×
