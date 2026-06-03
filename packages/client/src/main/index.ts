@@ -21,13 +21,15 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'safe-file', privileges: { secure: true, bypassCSP: true, supportFetchAPI: true } }
 ])
 
+let mainWindow: BrowserWindow | null = null
+
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 768,
-    show: false,
+    show: true,
     autoHideMenuBar: true,
     title: 'АльваресAI — Облік особового складу',
     backgroundColor: '#ffffff',
@@ -43,9 +45,26 @@ function createWindow(): void {
     setTimeout(() => mainWindow.show(), 100)
   })
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[main] renderer did-fail-load:', errorCode, errorDescription, validatedURL)
+    if (!mainWindow?.isDestroyed()) mainWindow.show()
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] renderer process gone:', details.reason, details.exitCode)
+  })
+
+  setTimeout(() => {
+    if (!mainWindow?.isDestroyed()) mainWindow.show()
+  }, 3000)
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -81,13 +100,13 @@ app.whenReady().then(() => {
     return net.fetch(`file:///${encodedPath}`)
   })
 
-  // Ініціалізація БД
-  initDatabase()
-
   // Реєстрація IPC обробників
   registerIpcHandlers()
 
   createWindow()
+
+  // Ініціалізація БД
+  initDatabase()
 
   // Auto-updater (only in production)
   initAutoUpdater()

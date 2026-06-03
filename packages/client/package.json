@@ -1,6 +1,6 @@
 {
   "name": "@alvares/client",
-  "version": "1.7.16",
+  "version": "1.7.17",
   "description": "АльваресAI — Система обліку особового складу (Electron client)",
   "main": "./out/main/index.js",
   "author": "12 ШР",
