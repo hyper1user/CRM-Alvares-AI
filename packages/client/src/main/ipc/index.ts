@@ -28,12 +28,35 @@ import {
   dgvMonthMeta
 } from '@shared/db/schema'
 import { eq, and, like, or, asc, desc, sql, gte, lte } from 'drizzle-orm'
-import { personnelCreateSchema, personnelUpdateSchema, positionCreateSchema, positionUpdateSchema, movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema, statusTypeCreateSchema, statusTypeUpdateSchema } from '@shared/validators'
+import { movementCreateSchema, statusHistoryCreateSchema, orderCreateSchema, leaveRecordCreateSchema, statusTypeCreateSchema, statusTypeUpdateSchema } from '@shared/validators'
 import { parseEjoosFile } from '../import/ejoos-parser'
 import { parseDataFile } from '../import/data-parser'
 import { importEjoos, importData, importImpulse } from '../import/import-service'
 import { parseImpulseFile } from '../import/impulse-parser'
 import { exportEjoos, exportCsv } from '../export/export-service'
+import {
+  bulkSetPersonnelBrRoles,
+  createPersonnel,
+  deletePersonnel,
+  getPersonnel,
+  listPersonnel,
+  searchPersonnel,
+  updatePersonnel,
+  type PersonnelFilters,
+  type PersonnelBrRoleUpdate
+} from '../services/personnel-service'
+import {
+  createPosition,
+  getPosition,
+  listPositions,
+  updatePosition,
+  type PositionFilters
+} from '../services/position-service'
+import {
+  getSubdivisionsTree,
+  listSubdivisions,
+  updateSubdivision
+} from '../services/subdivision-service'
 import {
   seedDefaultTemplates,
   listTemplates,
@@ -90,682 +113,50 @@ export function registerIpcHandlers(): void {
 
   // ==================== PERSONNEL CRUD ====================
 
-  // Personnel list with filters
-  safeHandle(
-    IPC.PERSONNEL_LIST,
-    (
-      _event,
-      filters?: {
-        search?: string
-        subdivision?: string
-        statusCode?: string
-        category?: string
-        status?: string
-      }
-    ) => {
-      const db = getDatabase()
-      const conditions: ReturnType<typeof eq>[] = []
-
-      // Default: only active
-      const statusFilter = filters?.status || 'active'
-      conditions.push(eq(personnel.status, statusFilter))
-
-      if (filters?.subdivision) {
-        conditions.push(eq(personnel.currentSubdivision, filters.subdivision))
-      }
-
-      if (filters?.statusCode) {
-        conditions.push(eq(personnel.currentStatusCode, filters.statusCode))
-      }
-
-      if (filters?.search) {
-        const pattern = `%${filters.search}%`
-        conditions.push(
-          or(
-            like(personnel.fullName, pattern),
-            like(personnel.ipn, pattern),
-            like(personnel.callsign, pattern)
-          )!
-        )
-      }
-
-      // v0.8.8: для вкладки «Виключені» сортуємо за датою виключення
-      // (новіші вгорі). v0.9.3: перейшли з desc(updatedAt) на desc(excludedAt) —
-      // окреме поле, що НЕ змінюється при правці картки виключеного
-      // (фото, телефон тощо). Решта запитів — штатне сортування з v0.8.4
-      // (за currentPositionIdx).
-      const primarySort = statusFilter === 'excluded'
-        ? desc(personnel.excludedAt)
-        : asc(personnel.currentPositionIdx)
-
-      const result = db
-        .select({
-          id: personnel.id,
-          ipn: personnel.ipn,
-          fullName: personnel.fullName,
-          rankName: ranks.name,
-          rankCategory: ranks.category,
-          callsign: personnel.callsign,
-          currentPositionIdx: personnel.currentPositionIdx,
-          currentStatusCode: personnel.currentStatusCode,
-          currentSubdivision: personnel.currentSubdivision,
-          phone: personnel.phone,
-          status: personnel.status,
-          excludedAt: personnel.excludedAt,
-          brRole: personnel.brRole
-        })
-        .from(personnel)
-        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
-        .where(and(...conditions))
-        .orderBy(primarySort, asc(personnel.fullName))
-        .all()
-
-      // Enrich with position title if position index exists
-      const positionRows = db.select().from(positions).all()
-      const posMap = new Map(positionRows.map((p) => [p.positionIndex, p.title]))
-
-      // Enrich with status name
-      const statusRows = db.select().from(statusTypes).all()
-      const statusMap = new Map(statusRows.map((s) => [s.code, s.name]))
-
-      // Filter by rank category if needed
-      let enriched = result.map((row) => ({
-        ...row,
-        positionTitle: row.currentPositionIdx ? (posMap.get(row.currentPositionIdx) ?? null) : null,
-        statusName: row.currentStatusCode
-          ? (statusMap.get(row.currentStatusCode) ?? null)
-          : null
-      }))
-
-      if (filters?.category) {
-        enriched = enriched.filter((r) => r.rankCategory === filters!.category)
-      }
-
-      return enriched
-    }
+  safeHandle(IPC.PERSONNEL_LIST, (_event, filters?: PersonnelFilters) =>
+    listPersonnel(filters)
   )
 
-  // Personnel get by id
-  safeHandle(IPC.PERSONNEL_GET, (_event, id: number) => {
-    const db = getDatabase()
+  safeHandle(IPC.PERSONNEL_GET, (_event, id: number) => getPersonnel(id))
 
-    const row = db
-      .select()
-      .from(personnel)
-      .where(eq(personnel.id, id))
-      .get()
-
-    if (!row) return null
-
-    // Enrich with rank name and position title
-    let rankName: string | null = null
-    let rankCategory: string | null = null
-    if (row.rankId) {
-      const rank = db.select().from(ranks).where(eq(ranks.id, row.rankId)).get()
-      if (rank) {
-        rankName = rank.name
-        rankCategory = rank.category
-      }
-    }
-
-    let positionTitle: string | null = null
-    if (row.currentPositionIdx) {
-      const pos = db
-        .select()
-        .from(positions)
-        .where(eq(positions.positionIndex, row.currentPositionIdx))
-        .get()
-      if (pos) positionTitle = pos.title
-    }
-
-    let statusName: string | null = null
-    let statusColorCode: string | null = null
-    if (row.currentStatusCode) {
-      const st = db
-        .select()
-        .from(statusTypes)
-        .where(eq(statusTypes.code, row.currentStatusCode))
-        .get()
-      if (st) {
-        statusName = st.name
-        statusColorCode = st.colorCode ?? null
-      }
-    }
-
-    let educationLevelName: string | null = null
-    if (row.educationLevelId) {
-      const el = db.select().from(educationLevels).where(eq(educationLevels.id, row.educationLevelId)).get()
-      if (el) educationLevelName = el.name
-    }
-
-    let tccName: string | null = null
-    if (row.tccId) {
-      const tcc = db.select().from(tccOffices).where(eq(tccOffices.id, row.tccId)).get()
-      if (tcc) tccName = tcc.name
-    }
-
-    return { ...row, rankName, rankCategory, positionTitle, statusName, statusColorCode, educationLevelName, tccName }
-  })
-
-  // Personnel create
-  safeHandle(IPC.PERSONNEL_CREATE, (_event, data: Record<string, unknown>) => {
-    const parsed = personnelCreateSchema.safeParse(data)
-    if (!parsed.success) {
-      return { error: true, issues: parsed.error.issues }
-    }
-
-    const db = getDatabase()
-    const input = parsed.data
-
-    // Build fullName
-    const fullName = [input.lastName, input.firstName, input.patronymic].filter(Boolean).join(' ')
-
-    // Clean empty strings to null
-    const cleaned: Record<string, unknown> = { fullName }
-    for (const [key, value] of Object.entries(input)) {
-      cleaned[key] = value === '' ? null : value
-    }
-
-    const result = db
-      .insert(personnel)
-      .values(cleaned as typeof personnel.$inferInsert)
-      .returning()
-      .get()
-
-    // Audit log
-    db.insert(auditLog)
-      .values({
-        tableName: 'personnel',
-        recordId: result.id,
-        action: 'create',
-        newValues: JSON.stringify(cleaned)
-      })
-      .run()
-
-    return result
-  })
-
-  // Personnel update
-  safeHandle(
-    IPC.PERSONNEL_UPDATE,
-    (_event, id: number, data: Record<string, unknown>) => {
-      const parsed = personnelUpdateSchema.safeParse(data)
-      if (!parsed.success) {
-        return { error: true, issues: parsed.error.issues }
-      }
-
-      const db = getDatabase()
-      const input = parsed.data
-
-      // Rebuild fullName if name fields changed
-      const updates: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(input)) {
-        updates[key] = value === '' ? null : value
-      }
-
-      if (input.lastName || input.firstName || input.patronymic) {
-        const existing = db.select().from(personnel).where(eq(personnel.id, id)).get()
-        if (existing) {
-          const lastName = input.lastName || existing.lastName
-          const firstName = input.firstName || existing.firstName
-          const patronymic =
-            input.patronymic !== undefined ? input.patronymic : existing.patronymic
-          updates.fullName = [lastName, firstName, patronymic].filter(Boolean).join(' ')
-        }
-      }
-
-      updates.updatedAt = sql`datetime('now')`
-
-      // Get old values for audit
-      const oldRow = db.select().from(personnel).where(eq(personnel.id, id)).get()
-
-      // v0.9.3: підтримуємо інваріант excluded_at IS NOT NULL ⇔ status='excluded'.
-      // Restore (status: excluded → active, напр. ExcludedPersonnel handleRestore) —
-      // занулюємо excludedAt, інакше при повторному виключенні відображалась би
-      // стара дата. Зворотний перехід (active → excluded) тут не обробляємо:
-      // виключення йде через PERSONNEL_DELETE або MOVEMENTS_CREATE, які
-      // ставлять excludedAt напряму.
-      if (input.status === 'active' && oldRow?.status === 'excluded') {
-        updates.excludedAt = null
-      }
-
-      db.update(personnel)
-        .set(updates as Partial<typeof personnel.$inferInsert>)
-        .where(eq(personnel.id, id))
-        .run()
-
-      // Audit log
-      db.insert(auditLog)
-        .values({
-          tableName: 'personnel',
-          recordId: id,
-          action: 'update',
-          oldValues: JSON.stringify(oldRow),
-          newValues: JSON.stringify(updates)
-        })
-        .run()
-
-      return db.select().from(personnel).where(eq(personnel.id, id)).get()
-    }
+  safeHandle(IPC.PERSONNEL_CREATE, (_event, data: Record<string, unknown>) =>
+    createPersonnel(data)
   )
 
-  // Personnel delete (soft — set status to 'excluded')
-  safeHandle(IPC.PERSONNEL_DELETE, (_event, id: number) => {
-    const db = getDatabase()
-
-    // v0.9.3: окреме поле excludedAt для стабільного сортування виключених
-    // (раніше desc(updatedAt), яке «дрейфувало» при правці картки).
-    db.update(personnel)
-      .set({
-        status: 'excluded',
-        excludedAt: sql`datetime('now')`,
-        updatedAt: sql`datetime('now')`
-      })
-      .where(eq(personnel.id, id))
-      .run()
-
-    db.insert(auditLog)
-      .values({
-        tableName: 'personnel',
-        recordId: id,
-        action: 'soft_delete',
-        newValues: JSON.stringify({ status: 'excluded' })
-      })
-      .run()
-
-    return { ok: true }
-  })
-
-  // v1.6.0: масове оновлення br_role для адмінки /settings/br-roles.
-  // Приймає {personnelId, brRole}[]; одна транзакція + один audit-запис
-  // (паттерн з ATTENDANCE_BULK_SET v0.9.2). brRole=null очищає роль;
-  // рядок — встановлює (валідація проти whitelist BR_ROLE_NAMES на фронтенді).
-  safeHandle(
-    IPC.PERSONNEL_BR_ROLES_BULK_SET,
-    (_event, items: Array<{ personnelId: number; brRole: string | null }>) => {
-      if (!Array.isArray(items) || items.length === 0) {
-        return { ok: true, updated: 0 }
-      }
-      const db = getDatabase()
-      let updated = 0
-      db.transaction(() => {
-        for (const it of items) {
-          const res = db
-            .update(personnel)
-            .set({ brRole: it.brRole ?? null, updatedAt: sql`datetime('now')` })
-            .where(eq(personnel.id, it.personnelId))
-            .run()
-          updated += res.changes
-        }
-      })
-
-      db.insert(auditLog)
-        .values({
-          tableName: 'personnel',
-          recordId: 0,
-          action: 'br_roles_bulk_set',
-          newValues: JSON.stringify({ count: items.length, updated })
-        })
-        .run()
-
-      return { ok: true, updated }
-    }
+  safeHandle(IPC.PERSONNEL_UPDATE, (_event, id: number, data: Record<string, unknown>) =>
+    updatePersonnel(id, data)
   )
 
-  // Personnel search (alias — uses same logic as list with search filter)
-  safeHandle(IPC.PERSONNEL_SEARCH, (_event, query: string) => {
-    const db = getDatabase()
-    const q = (query ?? '').toLowerCase().trim()
-    if (!q) return []
+  safeHandle(IPC.PERSONNEL_DELETE, (_event, id: number) => deletePersonnel(id))
 
-    // Тягнемо всіх активних і фільтруємо в JS — SQLite default-зборка без ICU
-    // має ASCII-only LOWER()/LIKE, тож для української `LIKE '%бачурін%'` не
-    // знайде 'Бачурін'. JS toLowerCase коректно обробляє кирилицю.
-    // 140 рядків — мить навіть на найслабшій машині.
-    const allActive = db
-      .select({
-        id: personnel.id,
-        ipn: personnel.ipn,
-        fullName: personnel.fullName,
-        rankName: ranks.name,
-        rankCategory: ranks.category,
-        callsign: personnel.callsign,
-        currentPositionIdx: personnel.currentPositionIdx,
-        currentStatusCode: personnel.currentStatusCode,
-        currentSubdivision: personnel.currentSubdivision,
-        phone: personnel.phone,
-        status: personnel.status
-      })
-      .from(personnel)
-      .leftJoin(ranks, eq(personnel.rankId, ranks.id))
-      .where(eq(personnel.status, 'active'))
-      .orderBy(asc(personnel.currentPositionIdx), asc(personnel.fullName))
-      .all()
+  safeHandle(IPC.PERSONNEL_BR_ROLES_BULK_SET, (_event, items: PersonnelBrRoleUpdate[]) =>
+    bulkSetPersonnelBrRoles(items)
+  )
 
-    return allActive.filter((p) => {
-      const fullName = (p.fullName ?? '').toLowerCase()
-      const ipn = (p.ipn ?? '').toLowerCase()
-      const callsign = (p.callsign ?? '').toLowerCase()
-      return fullName.includes(q) || ipn.includes(q) || callsign.includes(q)
-    })
-  })
+  safeHandle(IPC.PERSONNEL_SEARCH, (_event, query: string) => searchPersonnel(query))
 
   // ==================== POSITIONS CRUD ====================
 
-  // Positions list with filters + occupant enrichment
-  safeHandle(
-    IPC.POSITIONS_LIST,
-    (
-      _event,
-      filters?: {
-        subdivisionId?: number
-        isActive?: boolean
-        search?: string
-        occupancy?: 'all' | 'occupied' | 'vacant' | 'deactivated'
-      }
-    ) => {
-      const db = getDatabase()
-
-      // Get all positions with subdivision info
-      const allPos = db
-        .select({
-          id: positions.id,
-          positionIndex: positions.positionIndex,
-          subdivisionId: positions.subdivisionId,
-          title: positions.title,
-          detail: positions.detail,
-          fullTitle: positions.fullTitle,
-          rankRequired: positions.rankRequired,
-          specialtyCode: positions.specialtyCode,
-          tariffGrade: positions.tariffGrade,
-          staffNumber: positions.staffNumber,
-          isActive: positions.isActive,
-          notes: positions.notes,
-          subdivisionCode: subdivisions.code,
-          subdivisionName: subdivisions.name
-        })
-        .from(positions)
-        .leftJoin(subdivisions, eq(positions.subdivisionId, subdivisions.id))
-        .orderBy(asc(positions.positionIndex))
-        .all()
-
-      // Get active personnel mapped to position indices
-      const activePersonnel = db
-        .select({
-          id: personnel.id,
-          fullName: personnel.fullName,
-          rankName: ranks.name,
-          currentPositionIdx: personnel.currentPositionIdx
-        })
-        .from(personnel)
-        .leftJoin(ranks, eq(personnel.rankId, ranks.id))
-        .where(eq(personnel.status, 'active'))
-        .all()
-
-      const personnelByPos = new Map<string, { id: number; fullName: string; rankName: string | null }>()
-      for (const p of activePersonnel) {
-        if (p.currentPositionIdx) {
-          personnelByPos.set(p.currentPositionIdx, {
-            id: p.id,
-            fullName: p.fullName,
-            rankName: p.rankName
-          })
-        }
-      }
-
-      // Enrich positions with occupant info
-      let result = allPos.map((pos) => {
-        const occupant = personnelByPos.get(pos.positionIndex)
-        return {
-          ...pos,
-          occupantId: occupant?.id ?? null,
-          occupantName: occupant?.fullName ?? null,
-          occupantRank: occupant?.rankName ?? null
-        }
-      })
-
-      // Apply filters
-      if (filters?.subdivisionId) {
-        result = result.filter((p) => p.subdivisionId === filters.subdivisionId)
-      }
-
-      if (filters?.search) {
-        const q = filters.search.toLowerCase()
-        result = result.filter(
-          (p) =>
-            p.positionIndex.toLowerCase().includes(q) ||
-            p.title.toLowerCase().includes(q) ||
-            (p.occupantName && p.occupantName.toLowerCase().includes(q))
-        )
-      }
-
-      if (filters?.occupancy === 'occupied') {
-        result = result.filter((p) => p.isActive && p.occupantId !== null)
-      } else if (filters?.occupancy === 'vacant') {
-        result = result.filter((p) => p.isActive && p.occupantId === null)
-      } else if (filters?.occupancy === 'deactivated') {
-        result = result.filter((p) => !p.isActive)
-      } else if (filters?.isActive !== undefined) {
-        result = result.filter((p) => p.isActive === filters.isActive)
-      }
-
-      return result
-    }
+  safeHandle(IPC.POSITIONS_LIST, (_event, filters?: PositionFilters) =>
+    listPositions(filters)
   )
 
-  // Position get by id
-  safeHandle(IPC.POSITIONS_GET, (_event, id: number) => {
-    const db = getDatabase()
+  safeHandle(IPC.POSITIONS_GET, (_event, id: number) => getPosition(id))
 
-    const pos = db
-      .select({
-        id: positions.id,
-        positionIndex: positions.positionIndex,
-        subdivisionId: positions.subdivisionId,
-        title: positions.title,
-        detail: positions.detail,
-        fullTitle: positions.fullTitle,
-        rankRequired: positions.rankRequired,
-        specialtyCode: positions.specialtyCode,
-        tariffGrade: positions.tariffGrade,
-        staffNumber: positions.staffNumber,
-        isActive: positions.isActive,
-        notes: positions.notes,
-        subdivisionCode: subdivisions.code,
-        subdivisionName: subdivisions.name
-      })
-      .from(positions)
-      .leftJoin(subdivisions, eq(positions.subdivisionId, subdivisions.id))
-      .where(eq(positions.id, id))
-      .get()
+  safeHandle(IPC.POSITIONS_CREATE, (_event, data: Record<string, unknown>) =>
+    createPosition(data)
+  )
 
-    if (!pos) return null
-
-    // Find occupant
-    const occupant = db
-      .select({
-        id: personnel.id,
-        fullName: personnel.fullName,
-        rankName: ranks.name
-      })
-      .from(personnel)
-      .leftJoin(ranks, eq(personnel.rankId, ranks.id))
-      .where(and(eq(personnel.currentPositionIdx, pos.positionIndex), eq(personnel.status, 'active')))
-      .get()
-
-    return {
-      ...pos,
-      occupantId: occupant?.id ?? null,
-      occupantName: occupant?.fullName ?? null,
-      occupantRank: occupant?.rankName ?? null
-    }
-  })
-
-  // Position create
-  safeHandle(IPC.POSITIONS_CREATE, (_event, data: Record<string, unknown>) => {
-    const parsed = positionCreateSchema.safeParse(data)
-    if (!parsed.success) {
-      return { error: true, issues: parsed.error.issues }
-    }
-
-    const db = getDatabase()
-    const input = parsed.data
-
-    // Clean empty strings to null
-    const cleaned: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(input)) {
-      cleaned[key] = value === '' ? null : value
-    }
-
-    const result = db
-      .insert(positions)
-      .values(cleaned as typeof positions.$inferInsert)
-      .returning()
-      .get()
-
-    db.insert(auditLog)
-      .values({
-        tableName: 'positions',
-        recordId: result.id,
-        action: 'create',
-        newValues: JSON.stringify(cleaned)
-      })
-      .run()
-
-    return result
-  })
-
-  // Position update
-  safeHandle(
-    IPC.POSITIONS_UPDATE,
-    (_event, id: number, data: Record<string, unknown>) => {
-      const parsed = positionUpdateSchema.safeParse(data)
-      if (!parsed.success) {
-        return { error: true, issues: parsed.error.issues }
-      }
-
-      const db = getDatabase()
-      const input = parsed.data
-
-      const updates: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(input)) {
-        updates[key] = value === '' ? null : value
-      }
-
-      const oldRow = db.select().from(positions).where(eq(positions.id, id)).get()
-
-      db.update(positions)
-        .set(updates as Partial<typeof positions.$inferInsert>)
-        .where(eq(positions.id, id))
-        .run()
-
-      db.insert(auditLog)
-        .values({
-          tableName: 'positions',
-          recordId: id,
-          action: 'update',
-          oldValues: JSON.stringify(oldRow),
-          newValues: JSON.stringify(updates)
-        })
-        .run()
-
-      return db.select().from(positions).where(eq(positions.id, id)).get()
-    }
+  safeHandle(IPC.POSITIONS_UPDATE, (_event, id: number, data: Record<string, unknown>) =>
+    updatePosition(id, data)
   )
 
   // ==================== SUBDIVISIONS TREE ====================
 
-  safeHandle(IPC.SUBDIVISIONS_TREE, () => {
-    const db = getDatabase()
+  safeHandle(IPC.SUBDIVISIONS_TREE, () => getSubdivisionsTree())
 
-    const allSubs = db.select().from(subdivisions).orderBy(asc(subdivisions.sortOrder)).all()
-    const allPositions = db.select().from(positions).where(eq(positions.isActive, true)).all()
-    const activePersonnel = db
-      .select({
-        id: personnel.id,
-        currentSubdivision: personnel.currentSubdivision,
-        currentPositionIdx: personnel.currentPositionIdx
-      })
-      .from(personnel)
-      .where(eq(personnel.status, 'active'))
-      .all()
-
-    // Count positions per subdivision
-    const posCountBySubId = new Map<number, number>()
-    for (const p of allPositions) {
-      posCountBySubId.set(p.subdivisionId, (posCountBySubId.get(p.subdivisionId) || 0) + 1)
-    }
-
-    // Count personnel per subdivision (by code)
-    const persCountByCode = new Map<string, number>()
-    for (const p of activePersonnel) {
-      if (p.currentSubdivision) {
-        persCountByCode.set(p.currentSubdivision, (persCountByCode.get(p.currentSubdivision) || 0) + 1)
-      }
-    }
-
-    // Count occupied positions per subdivision
-    const occupiedPosIdx = new Set(activePersonnel.map((p) => p.currentPositionIdx).filter(Boolean))
-    const occupiedBySubId = new Map<number, number>()
-    for (const p of allPositions) {
-      if (occupiedPosIdx.has(p.positionIndex)) {
-        occupiedBySubId.set(p.subdivisionId, (occupiedBySubId.get(p.subdivisionId) || 0) + 1)
-      }
-    }
-
-    // Build tree nodes
-    type TreeNode = typeof allSubs[0] & {
-      children: TreeNode[]
-      personnelCount: number
-      positionCount: number
-      vacantCount: number
-    }
-
-    const nodes: TreeNode[] = allSubs.map((s) => {
-      const posCount = posCountBySubId.get(s.id) || 0
-      const persCount = persCountByCode.get(s.code) || 0
-      const occupiedCount = occupiedBySubId.get(s.id) || 0
-      return {
-        ...s,
-        children: [],
-        personnelCount: persCount,
-        positionCount: posCount,
-        vacantCount: posCount - occupiedCount
-      }
-    })
-
-    const nodeById = new Map(nodes.map((n) => [n.id, n]))
-    const roots: TreeNode[] = []
-
-    for (const node of nodes) {
-      if (node.parentId && nodeById.has(node.parentId)) {
-        nodeById.get(node.parentId)!.children.push(node)
-      } else {
-        roots.push(node)
-      }
-    }
-
-    return roots
-  })
-
-  // Subdivision update
-  safeHandle(
-    IPC.SUBDIVISIONS_UPDATE,
-    (_event, id: number, data: Record<string, unknown>) => {
-      const db = getDatabase()
-
-      const updates: Record<string, unknown> = {}
-      if (data.name !== undefined) updates.name = data.name
-      if (data.fullName !== undefined) updates.fullName = data.fullName
-      if (data.isActive !== undefined) updates.isActive = data.isActive
-
-      db.update(subdivisions)
-        .set(updates as Partial<typeof subdivisions.$inferInsert>)
-        .where(eq(subdivisions.id, id))
-        .run()
-
-      return db.select().from(subdivisions).where(eq(subdivisions.id, id)).get()
-    }
+  safeHandle(IPC.SUBDIVISIONS_UPDATE, (_event, id: number, data: Record<string, unknown>) =>
+    updateSubdivision(id, data)
   )
 
   // ==================== LOOKUPS ====================
@@ -930,8 +321,7 @@ export function registerIpcHandlers(): void {
   })
 
   safeHandle(IPC.SUBDIVISIONS_LIST, () => {
-    const db = getDatabase()
-    return db.select().from(subdivisions).all()
+    return listSubdivisions()
   })
 
   safeHandle(IPC.BLOOD_TYPES_LIST, () => {

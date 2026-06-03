@@ -1,6 +1,6 @@
 {
   "name": "@alvares/client",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "description": "АльваресAI — Система обліку особового складу (Electron client)",
   "main": "./out/main/index.js",
   "author": "12 ШР",
@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "build:win": "node build/fix-readable-stream.cjs && electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64",
+    "build:win": "node build/fix-readable-stream.cjs && electron-vite build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win --x64",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
