@@ -83,6 +83,15 @@ function fuzzyLookup(map: Map<string, number>, value: string | null): number | n
   return null
 }
 
+function tableExists(tableName: string): boolean {
+  const db = getDatabase()
+  const rows = db.all<{ name: string }>(
+    sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${tableName} LIMIT 1`
+  )
+
+  return rows.length > 0
+}
+
 // ==================== IMPORT EJOOS ====================
 
 export function importEjoos(parsed: ParseResult): ImportResult {
@@ -98,7 +107,9 @@ export function importEjoos(parsed: ParseResult): ImportResult {
     db.run(sql`BEGIN TRANSACTION`)
 
     // 1. Clear existing data (reverse dependency order — всі дочірні з FK на personnel)
-    db.run(sql`DELETE FROM dgv_marks`)
+    if (tableExists('dgv_marks')) {
+      db.run(sql`DELETE FROM dgv_marks`)
+    }
     db.run(sql`DELETE FROM order_items`)
     db.run(sql`DELETE FROM injury_records`)
     db.run(sql`DELETE FROM leave_records`)
