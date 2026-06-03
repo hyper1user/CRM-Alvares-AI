@@ -1,0 +1,22 @@
+{
+  "name": "@alvares/server",
+  "version": "0.1.0",
+  "description": "Phase 0 server skeleton for AlvaresAI sync",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "pnpm build && node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@alvares/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.7.3"
+  }
+}

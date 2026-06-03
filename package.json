@@ -6,9 +6,12 @@
   "author": "12 ШР",
   "scripts": {
     "dev": "pnpm --filter @alvares/client dev",
+    "dev:server": "pnpm --filter @alvares/server dev",
     "build": "pnpm --filter @alvares/client build",
+    "build:server": "pnpm --filter @alvares/server build",
     "build:win": "pnpm --filter @alvares/client build:win",
     "start": "pnpm --filter @alvares/client start",
+    "start:server": "pnpm --filter @alvares/server start",
     "db:generate": "pnpm --filter @alvares/client db:generate",
     "db:migrate": "pnpm --filter @alvares/client db:migrate",
     "postinstall": "pnpm --filter @alvares/client exec electron-rebuild -f -w better-sqlite3 && node packages/client/build/fix-readable-stream.cjs"
