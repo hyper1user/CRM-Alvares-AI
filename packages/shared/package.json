@@ -1,0 +1,23 @@
+{
+  "name": "@alvares/shared",
+  "version": "1.7.7",
+  "description": "Shared types, enums, validators та DB schema для АльваресAI",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types/*": "./src/types/*.ts",
+    "./enums/*": "./src/enums/*.ts",
+    "./utils/*": "./src/utils/*.ts",
+    "./ids/uuid-v7": "./src/ids/uuid-v7.ts",
+    "./validators": "./src/validators.ts",
+    "./ipc-channels": "./src/ipc-channels.ts",
+    "./db/schema": "./src/db/schema.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.39.3",
+    "zod": "^3.24.2"
+  }
+}

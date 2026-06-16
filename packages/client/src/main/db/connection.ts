@@ -1,0 +1,1239 @@
+import Database from 'better-sqlite3'
+import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { app } from 'electron'
+import { join } from 'path'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
+import * as schema from '@shared/db/schema'
+import { seedDatabase } from './seed'
+
+export type AppDatabase = BetterSQLite3Database<typeof schema>
+
+let db: AppDatabase | null = null
+let sqlite: InstanceType<typeof Database> | null = null
+
+function dbStartupLog(message: string): void {
+  try {
+    appendFileSync(join(app.getPath('userData'), 'startup.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Best-effort startup diagnostics only.
+  }
+}
+
+function getDbPath(): string {
+  const userDataPath = app.getPath('userData')
+  const dbDir = join(userDataPath, 'data')
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true })
+  }
+  return join(dbDir, 'personnel.db')
+}
+
+export function initDatabase(): AppDatabase {
+  if (db) return db
+
+  const dbPath = getDbPath()
+  dbStartupLog(`db:path ${dbPath}`)
+  console.log(`[db] Шлях до БД: ${dbPath}`)
+
+  dbStartupLog('db:open:start')
+  sqlite = new Database(dbPath)
+  dbStartupLog('db:open:end')
+
+  // Оптимізації SQLite
+  dbStartupLog('db:pragma:start')
+  sqlite.pragma('journal_mode = WAL')
+  sqlite.pragma('foreign_keys = ON')
+  sqlite.pragma('busy_timeout = 5000')
+  dbStartupLog('db:pragma:end')
+
+  db = drizzle<typeof schema>(sqlite, { schema })
+
+  // Створюємо таблиці якщо їх немає
+  dbStartupLog('db:createTables:start')
+  createTables(sqlite)
+  dbStartupLog('db:createTables:end')
+
+  // Seed data
+  dbStartupLog('db:seed:start')
+  seedDatabase(db)
+  dbStartupLog('db:seed:end')
+
+  console.log('[db] База даних ініціалізована')
+  return db
+}
+
+export function getDatabase(): AppDatabase {
+  if (!db) {
+    dbStartupLog('db:lazy-init:start')
+    try {
+      return initDatabase()
+    } catch (error) {
+      dbStartupLog(`db:lazy-init:error ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
+  }
+  return db
+}
+
+export function closeDatabase(): void {
+  if (sqlite) {
+    sqlite.close()
+    sqlite = null
+    db = null
+    console.log('[db] База даних закрита')
+  }
+}
+
+// ============================================================
+// DDL — єдине джерело істини для структури БД.
+// Drizzle-схема (schema.ts) має відповідати цьому DDL 1:1.
+// Для нових БД всі колонки створюються одразу.
+// Для існуючих БД (оновлення) — migratePersonnel() додає
+// відсутні колонки через ALTER TABLE.
+// ============================================================
+function createTables(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    -- ==================== ДОВІДНИКИ ====================
+
+    CREATE TABLE IF NOT EXISTS ranks (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      nato_code TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS status_types (
+      id INTEGER PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      group_name TEXT NOT NULL,
+      on_supply INTEGER DEFAULT 1,
+      is_combat INTEGER DEFAULT 0,
+      dgv_code TEXT,
+      reward_amount INTEGER,
+      sort_order INTEGER NOT NULL,
+      color_code TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS subdivisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      full_name TEXT,
+      parent_id INTEGER REFERENCES subdivisions(id),
+      sort_order INTEGER NOT NULL,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      position_index TEXT NOT NULL UNIQUE,
+      subdivision_id INTEGER NOT NULL REFERENCES subdivisions(id),
+      title TEXT NOT NULL,
+      detail TEXT,
+      full_title TEXT,
+      rank_required TEXT,
+      specialty_code TEXT,
+      tariff_grade INTEGER,
+      staff_number TEXT,
+      is_active INTEGER DEFAULT 1,
+      notes TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS blood_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS contract_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      months INTEGER NOT NULL,
+      to_demob INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS education_levels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS tcc_offices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      oblast TEXT NOT NULL,
+      code TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS order_issuers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS movement_order_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS exclusion_reasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS absence_reasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS loss_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      status_code TEXT NOT NULL,
+      color_tag TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_type_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alias TEXT NOT NULL UNIQUE,
+      leave_type_id INTEGER NOT NULL REFERENCES leave_types(id)
+    );
+
+    -- ==================== РОБОЧІ ТАБЛИЦІ ====================
+
+    CREATE TABLE IF NOT EXISTS personnel (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ipn TEXT NOT NULL UNIQUE,
+      rank_id INTEGER REFERENCES ranks(id),
+
+      last_name TEXT NOT NULL,
+      first_name TEXT NOT NULL,
+      patronymic TEXT,
+      full_name TEXT NOT NULL,
+      callsign TEXT,
+      date_of_birth TEXT,
+      phone TEXT,
+
+      enrollment_order_date TEXT,
+      enrollment_order_info TEXT,
+      arrived_from TEXT,
+      arrival_position_idx TEXT,
+      enrollment_date TEXT,
+      enrollment_order_num TEXT,
+
+      current_position_idx TEXT,
+      current_status_code TEXT,
+      current_subdivision TEXT,
+
+      rank_order_date TEXT,
+      rank_order_info TEXT,
+
+      service_type TEXT,
+      contract_date TEXT,
+      contract_type_id INTEGER REFERENCES contract_types(id),
+      contract_end_date TEXT,
+
+      id_doc_series TEXT,
+      id_doc_number TEXT,
+      id_doc_type TEXT,
+      passport_series TEXT,
+      passport_number TEXT,
+      passport_issued_by TEXT,
+      passport_issued_date TEXT,
+      military_id_series TEXT,
+      military_id_number TEXT,
+
+      ubd_series TEXT,
+      ubd_number TEXT,
+      ubd_date TEXT,
+
+      gender TEXT,
+      blood_type_id INTEGER REFERENCES blood_types(id),
+      fitness TEXT,
+      education_level_id INTEGER REFERENCES education_levels(id),
+      education_institution TEXT,
+      education_year TEXT,
+      military_education TEXT,
+
+      birthplace TEXT,
+      address_actual TEXT,
+      address_registered TEXT,
+      marital_status TEXT,
+      relatives_info TEXT,
+      nationality TEXT,
+      citizenship TEXT,
+
+      conscription_date TEXT,
+      tcc_id INTEGER REFERENCES tcc_offices(id),
+      oblast TEXT,
+      personal_number TEXT,
+      specialty_code TEXT,
+      photo_path TEXT,
+
+      status TEXT DEFAULT 'active',
+      excluded_at TEXT,
+      br_role TEXT,
+      additional_info TEXT,
+      notes TEXT,
+
+      -- Закордонний паспорт
+      foreign_passport_series TEXT,
+      foreign_passport_number TEXT,
+      foreign_passport_issued_by TEXT,
+      foreign_passport_issued_date TEXT,
+
+      -- ВК додатково
+      military_id_issued_by TEXT,
+      military_id_issued_date TEXT,
+
+      -- УБД додатково
+      ubd_issued_by TEXT,
+
+      -- Фінансові дані
+      iban TEXT,
+      bank_card TEXT,
+      bank_name TEXT,
+
+      -- Посвідчення водія
+      driver_license_issued_by TEXT,
+      driver_license_category TEXT,
+      driver_license_expiry TEXT,
+      driver_license_issued_date TEXT,
+      driver_license_experience INTEGER,
+      driver_license_series TEXT,
+      driver_license_number TEXT,
+
+      -- Посвідчення тракториста
+      tractor_license_issued_by TEXT,
+      tractor_license_category TEXT,
+      tractor_license_expiry TEXT,
+      tractor_license_issued_date TEXT,
+      tractor_license_experience INTEGER,
+      tractor_license_series TEXT,
+      tractor_license_number TEXT,
+
+      -- Базова загальновійськова підготовка
+      basic_training_date_from TEXT,
+      basic_training_date_to TEXT,
+      basic_training_place TEXT,
+      basic_training_commander TEXT,
+      basic_training_notes TEXT,
+
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      order_issuer TEXT,
+      order_number TEXT,
+      order_date TEXT,
+      order_type TEXT NOT NULL,
+      position_index TEXT,
+      daily_order_number TEXT,
+      date_from TEXT NOT NULL,
+      date_to TEXT,
+      previous_position TEXT,
+      is_active INTEGER DEFAULT 1,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      status_code TEXT NOT NULL,
+      presence_group TEXT,
+      date_from TEXT NOT NULL,
+      date_to TEXT,
+      comment TEXT,
+      is_active INTEGER DEFAULT 1,
+      is_last INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS rank_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      rank_id INTEGER NOT NULL REFERENCES ranks(id),
+      assigned_date TEXT,
+      order_number TEXT,
+      order_info TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      date TEXT NOT NULL,
+      status_code TEXT NOT NULL,
+      presence_group TEXT,
+      UNIQUE(personnel_id, date)
+    );
+
+    CREATE TABLE IF NOT EXISTS absences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      reason TEXT NOT NULL,
+      location TEXT,
+      departure_date TEXT,
+      expected_return TEXT,
+      order_number TEXT,
+      order_date TEXT,
+      order_issuer TEXT,
+      actual_return TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS temporary_arrivals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ipn TEXT,
+      rank TEXT,
+      full_name TEXT NOT NULL,
+      from_unit TEXT,
+      position TEXT,
+      arrival_date TEXT,
+      departure_date TEXT,
+      order_number TEXT,
+      reason TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS dispositions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      reason TEXT,
+      order_number TEXT,
+      order_date TEXT,
+      date_from TEXT,
+      date_to TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS irrecoverable_losses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      loss_type TEXT NOT NULL,
+      loss_date TEXT,
+      location TEXT,
+      circumstances TEXT,
+      order_number TEXT,
+      order_date TEXT,
+      notification_sent INTEGER DEFAULT 0,
+      notification_date TEXT,
+      notification_recipient TEXT,
+      body_identified INTEGER,
+      burial_location TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS leave_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      leave_type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      travel_days INTEGER DEFAULT 2,
+      destination TEXT,
+      order_number TEXT,
+      order_date TEXT,
+      ticket_number TEXT,
+      return_date TEXT,
+      tcc_registration TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS injury_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      injury_type TEXT NOT NULL,
+      date_of_injury TEXT NOT NULL,
+      location TEXT,
+      circumstances TEXT,
+      was_intoxicated INTEGER DEFAULT 0,
+      had_protective_equipment INTEGER DEFAULT 1,
+      related_to_offense INTEGER DEFAULT 0,
+      forma_100_number TEXT,
+      forma_100_date TEXT,
+      hospital_name TEXT,
+      certificate_issued INTEGER DEFAULT 0,
+      certificate_date TEXT,
+      order_number TEXT,
+      vlk_conclusion TEXT,
+      return_date TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_type TEXT NOT NULL,
+      order_number TEXT NOT NULL,
+      order_date TEXT NOT NULL,
+      subject TEXT,
+      body_text TEXT,
+      signed_by TEXT,
+      file_path TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id),
+      personnel_id INTEGER REFERENCES personnel(id),
+      action_type TEXT,
+      description TEXT,
+      sort_order INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      template_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      description TEXT,
+      is_default INTEGER DEFAULT 0,
+      category TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS generated_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER REFERENCES document_templates(id),
+      document_type TEXT NOT NULL,
+      title TEXT,
+      personnel_ids TEXT,
+      file_path TEXT NOT NULL,
+      generated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- ==================== DGV (Грошове забезпечення) ====================
+
+    CREATE TABLE IF NOT EXISTS dgv_marks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL REFERENCES personnel(id),
+      date TEXT NOT NULL,
+      dgv_code TEXT NOT NULL,
+      UNIQUE(personnel_id, date)
+    );
+
+    CREATE TABLE IF NOT EXISTS dgv_month_meta (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL DEFAULT 0,
+      year_month TEXT NOT NULL,
+      meta_key TEXT NOT NULL,
+      meta_value TEXT NOT NULL,
+      UNIQUE(personnel_id, year_month, meta_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      table_name TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      old_values TEXT,
+      new_values TEXT,
+      timestamp TEXT DEFAULT (datetime('now'))
+    );
+
+    -- ==================== ІНДЕКСИ ====================
+    CREATE INDEX IF NOT EXISTS idx_personnel_ipn ON personnel(ipn);
+    CREATE INDEX IF NOT EXISTS idx_personnel_status ON personnel(status);
+    CREATE INDEX IF NOT EXISTS idx_personnel_position ON personnel(current_position_idx);
+    CREATE INDEX IF NOT EXISTS idx_personnel_subdivision ON personnel(current_subdivision);
+    -- v0.9.3: idx_personnel_excluded_at створюється у addExcludedAtColumn(),
+    -- після того як ALTER TABLE додасть колонку excluded_at для старих БД.
+    -- Якщо створити тут — для існуючих інсталяцій SQLite не знайде колонки
+    -- (CREATE TABLE IF NOT EXISTS пропускає таблицю, але CREATE INDEX падає).
+    CREATE INDEX IF NOT EXISTS idx_movements_personnel ON movements(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_movements_position ON movements(position_index);
+    CREATE INDEX IF NOT EXISTS idx_movements_active ON movements(is_active);
+    CREATE INDEX IF NOT EXISTS idx_status_history_personnel ON status_history(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_status_history_active ON status_history(is_active);
+    CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+    CREATE INDEX IF NOT EXISTS idx_attendance_personnel_date ON attendance(personnel_id, date);
+    CREATE INDEX IF NOT EXISTS idx_rank_history_personnel ON rank_history(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_absences_personnel ON absences(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_leave_records_personnel ON leave_records(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_injury_records_personnel ON injury_records(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_type_date ON orders(order_type, order_date);
+    CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
+    CREATE INDEX IF NOT EXISTS idx_positions_subdivision ON positions(subdivision_id);
+    CREATE INDEX IF NOT EXISTS idx_dgv_marks_date ON dgv_marks(date);
+    CREATE INDEX IF NOT EXISTS idx_dgv_marks_personnel_date ON dgv_marks(personnel_id, date);
+    CREATE INDEX IF NOT EXISTS idx_dgv_meta_yearmonth ON dgv_month_meta(year_month);
+  `)
+
+  console.log('[db] Таблиці та індекси створено')
+
+  // Міграція для існуючих БД: додаємо колонки, яких може не бути
+  // у БД створених до v0.4.0 (ці колонки вже включені в CREATE TABLE
+  // вище, тому для нових БД ALTER TABLE не спрацює — і це нормально)
+  migratePersonnel(sqliteDb)
+
+  // v0.7.1: fix personnel whose active movement is "В розпорядження"
+  // but currentSubdivision was never updated
+  fixDispositionSubdivisions(sqliteDb)
+
+  // v0.8.1: rename unit "12 ОШР" → "12 ШР" in settings (correct abbreviation
+  // for "штурмова рота" — not "окрема штурмова рота")
+  fixUnitNameOshrToShr(sqliteDb)
+
+  // v0.8.2: синхронізація status_types зі значеннями ЕЖООС.xlsx
+  syncStatusTypesFromEjoos(sqliteDb)
+
+  // v0.9.5: ЕЖООС.xlsx використовує `'Виключений'` (дієприкметник), внутрішній
+  // код — `'Виключення'` (іменник, MOVEMENT_ORDER_TYPES enum). До v0.9.5 у БД
+  // лежали обидві форми залежно від джерела, через що fixExcludedFromMovements
+  // та MOVEMENTS_CREATE гілка не зачіпали імпортованих виключених. Нормалізуємо
+  // ДО fixExcludedFromMovements, щоб той підхопив виправлені рядки.
+  normalizeMovementOrderTypes(sqliteDb)
+
+  // v1.7.7: schema-міграція має виконатись ДО data-міграцій, бо вони пишуть
+  // у excluded_at. Для БД <v0.9.3 CREATE TABLE IF NOT EXISTS лишає таблицю
+  // без колонки → fixExcludedFromMovements падає з "no such column" і
+  // блокує запуск (вікно не створюється). Ідемпотентно — для нових БД no-op.
+  addExcludedAtColumn(sqliteDb)
+
+  // v0.8.6: для тих, кого раніше виключили через wizard переміщень
+  // (orderType='Виключення'), але БД залишила personnel.status='active'
+  // через відсутню гілку в MOVEMENTS_CREATE — застосувати правильний стан.
+  fixExcludedFromMovements(sqliteDb)
+
+  // v0.9.7: симетричний фікс для 'Відновлення' — гілки в MOVEMENTS_CREATE
+  // не існувало до v0.9.7, тож рух створювався, але status='excluded'
+  // не повертався на 'active'. Викликається ПІСЛЯ fixExcludedFromMovements,
+  // щоб у тих, кого і виключили, і відновили — кінцевий стан був 'active'.
+  fixRestoredFromMovements(sqliteDb)
+
+  // v0.8.7: проміжна v0.8.6 nullify-логіка занулила current_subdivision у
+  // виключених — через що вони випадали з вкладки «Виключені»
+  // (фільтр subdivision='Г-3'). Відновлюємо Г-3 для них (додаток
+  // розрахований на одну роту — інших значень бути не може).
+  restoreSubdivisionForExcluded(sqliteDb)
+
+  // v0.9.6: enrich excluded_at для існуючих виключених — взяти точну дату
+  // наказу з активного руху 'Виключення' замість updated_at (з v0.9.3 backfill).
+  // Без цього всі імпортовані виключені мали однаковий момент імпорту →
+  // сортування фактично не відрізнялось від попереднього updated_at-based.
+  backfillExcludedAtFromMovements(sqliteDb)
+
+  // v1.2.1: is_combat колонка у status_types — категоризація Дашборду/Реєстру
+  // тепер читає прапор з БД, а не з hardcoded COMBAT_CODES = {РВ,РЗ,РШ}.
+  // Без цього юзер-доданий бойовий код (РОП «На позиції») потрапляв у
+  // «На ППД» замість «Бойове завдання».
+  addIsCombatColumn(sqliteDb)
+
+  // v1.3.0: синхронізація DGV-кодів з ЕЖООС/Табель.xlsm. Перейменовуємо
+  // 'заг' → '200' у dgv_marks (узгоджено з status_types.code='200'='Загинув').
+  // Решта виправлень (ВПХ/вд/вп/Бух/нар) — це тільки опис у TS-коді,
+  // самі коди в БД не змінюються.
+  renameDgvCodeZagTo200(sqliteDb)
+
+  // v1.4.0: категоризація шаблонів Генератора у 4 групи (event/raport/
+  // discharge/monetary). 3 шаблони (Наказ по ОС, Відпускний квиток,
+  // Довідка про поранення) переводяться у 'retired' — UI Генератора їх
+  // не показує, але записи в БД лишаються (на випадок повернення).
+  addCategoryToDocumentTemplates(sqliteDb)
+
+  // v1.4.0: dgv_code колонка у status_types — мапинг status_code → dgv_code
+  // для генерації ДГВ-рапорту з attendance (замість окремого dgv_marks).
+  // Initial mapping з ЕЖООС. Юзер може правити через `StatusTypesAdmin`.
+  addDgvCodeToStatusTypes(sqliteDb)
+
+  // v1.4.2: hotfix mapping'а v1.4.0 для існуючих БД (РВ/РЗ/РШ/РОП → 'роп',
+  // ППД/АДП/БЗВП → '100' були помилкові). Кожен UPDATE з guard'ом на
+  // конкретне старе значення — не перетирає правки юзера.
+  fixDgvMappingV142(sqliteDb)
+
+  // v1.4.3: уточнення після фідбеку юзера. ППД/АДП/БЗВП у v1.4.2 я
+  // лишив null, але вони мають мапитись у секцію 7. ЗБ навпаки — мав
+  // 'ЗБ' у v1.4.0/v1.4.2 (секція 6), а правильно null (зник безвісти —
+  // звітність обривається).
+  fixDgvMappingV143(sqliteDb)
+
+  // v1.6.0: persistent роль бійця у Бойовому розпорядженні.
+  addBrRoleColumn(sqliteDb)
+
+  // v1.7.4: DROP TABLE dgv_marks (@deprecated з v1.4.0). DGV-табель тепер
+  // виводиться з attendance × status_types.dgv_code, окрема таблиця більше
+  // не запов нюється з v1.4.0. Після ~13 версій live-запуску — безпечно.
+  dropDgvMarksTable(sqliteDb)
+}
+
+function migratePersonnel(sqliteDb: InstanceType<typeof Database>): void {
+  const expectedColumns: [string, string][] = [
+    ['foreign_passport_series', 'TEXT'],
+    ['foreign_passport_number', 'TEXT'],
+    ['foreign_passport_issued_by', 'TEXT'],
+    ['foreign_passport_issued_date', 'TEXT'],
+    ['military_id_issued_by', 'TEXT'],
+    ['military_id_issued_date', 'TEXT'],
+    ['ubd_issued_by', 'TEXT'],
+    ['iban', 'TEXT'],
+    ['bank_card', 'TEXT'],
+    ['bank_name', 'TEXT'],
+    ['driver_license_issued_by', 'TEXT'],
+    ['driver_license_category', 'TEXT'],
+    ['driver_license_expiry', 'TEXT'],
+    ['driver_license_issued_date', 'TEXT'],
+    ['driver_license_experience', 'INTEGER'],
+    ['driver_license_series', 'TEXT'],
+    ['driver_license_number', 'TEXT'],
+    ['tractor_license_issued_by', 'TEXT'],
+    ['tractor_license_category', 'TEXT'],
+    ['tractor_license_expiry', 'TEXT'],
+    ['tractor_license_issued_date', 'TEXT'],
+    ['tractor_license_experience', 'INTEGER'],
+    ['tractor_license_series', 'TEXT'],
+    ['tractor_license_number', 'TEXT'],
+    ['basic_training_date_from', 'TEXT'],
+    ['basic_training_date_to', 'TEXT'],
+    ['basic_training_place', 'TEXT'],
+    ['basic_training_commander', 'TEXT'],
+    ['basic_training_notes', 'TEXT']
+  ]
+
+  const existingCols = sqliteDb
+    .prepare('PRAGMA table_info(personnel)')
+    .all() as { name: string }[]
+  const existingColNames = new Set(existingCols.map((c) => c.name))
+
+  let migrated = 0
+  for (const [col, type] of expectedColumns) {
+    if (!existingColNames.has(col)) {
+      sqliteDb.exec(`ALTER TABLE personnel ADD COLUMN ${col} ${type}`)
+      migrated++
+    }
+  }
+  if (migrated > 0) {
+    console.log(`[db] Міграція personnel: додано ${migrated} колонок`)
+  }
+}
+
+function fixDispositionSubdivisions(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET
+      current_subdivision = 'розпорядження',
+      current_position_idx = 'розпоряджен'
+    WHERE id IN (
+      SELECT m.personnel_id FROM movements m
+      WHERE m.is_active = 1
+        AND m.order_type LIKE 'В розпорядження%'
+    )
+    AND current_subdivision != 'розпорядження'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] fixDispositionSubdivisions: виправлено ${changes.cnt} записів`)
+  }
+}
+
+function fixUnitNameOshrToShr(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE settings
+    SET value = '12 ШР "Хижаки"'
+    WHERE key = 'unit_name' AND value = '12 ОШР "Хижаки"'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] fixUnitNameOshrToShr: оновлено settings.unit_name на "12 ШР"`)
+  }
+}
+
+// v0.8.2: status_types значення синхронізовані з ЕЖООС.xlsx → Налаштування.
+// Силовий перепис name/group_name/on_supply/reward_amount/sort_order/color_code
+// по code (id незмінні; особовий склад прив'язаний через current_status_code).
+// Викликається на кожному старті — UPDATE без changes повторно нічого не зробить.
+function syncStatusTypesFromEjoos(sqliteDb: InstanceType<typeof Database>): void {
+  type Row = {
+    code: string
+    name: string
+    groupName: string
+    onSupply: 0 | 1
+    rewardAmount: number | null
+    sortOrder: number
+    colorCode: string
+  }
+  const rows: Row[] = [
+    { code: 'РВ',    name: 'Район виконання',                                groupName: 'Так',             onSupply: 1, rewardAmount: 100000, sortOrder: 1,  colorCode: '#52c41a' },
+    { code: 'РЗ',    name: 'Район зосередження',                             groupName: 'Так',             onSupply: 1, rewardAmount: 30000,  sortOrder: 2,  colorCode: '#73d13d' },
+    { code: 'РШ',    name: 'Район штаб',                                     groupName: 'Так',             onSupply: 1, rewardAmount: 50000,  sortOrder: 3,  colorCode: '#95de64' },
+    { code: 'ППД',   name: 'ППД',                                            groupName: 'Так',             onSupply: 1, rewardAmount: null,   sortOrder: 4,  colorCode: '#b7eb8f' },
+    { code: 'АДП',   name: 'Адаптація',                                      groupName: 'Так',             onSupply: 1, rewardAmount: null,   sortOrder: 5,  colorCode: '#d9f7be' },
+    { code: 'БЗВП',  name: 'БЗВП',                                           groupName: 'Так',             onSupply: 1, rewardAmount: null,   sortOrder: 6,  colorCode: '#a0d911' },
+    { code: 'ВП',    name: 'Відпустка',                                      groupName: 'Відпустка',       onSupply: 0, rewardAmount: null,   sortOrder: 10, colorCode: '#1890ff' },
+    { code: 'ДВП',   name: 'Декретна відпустка',                             groupName: 'Відпустка',       onSupply: 0, rewardAmount: null,   sortOrder: 11, colorCode: '#40a9ff' },
+    { code: 'ВПХ',   name: 'Відпустка за хворобою',                          groupName: 'Відпустка',       onSupply: 0, rewardAmount: null,   sortOrder: 12, colorCode: '#69c0ff' },
+    { code: 'ВПС',   name: 'Відпустка по сімейним обставинам',               groupName: 'Відпустка',       onSupply: 0, rewardAmount: null,   sortOrder: 13, colorCode: '#91d5ff' },
+    { code: 'ВПП',   name: 'Відпустка після поранення',                      groupName: 'Відпустка',       onSupply: 0, rewardAmount: null,   sortOrder: 14, colorCode: '#bae7ff' },
+    { code: 'СЗЧ',   name: 'СЗЧ',                                            groupName: 'СЗЧ',             onSupply: 0, rewardAmount: null,   sortOrder: 20, colorCode: '#ff4d4f' },
+    { code: '200',   name: 'Загиблі',                                        groupName: 'Загиблі',         onSupply: 0, rewardAmount: null,   sortOrder: 30, colorCode: '#000000' },
+    { code: 'ЗБ',    name: 'Без вісти',                                      groupName: 'Зниклі безвісти', onSupply: 0, rewardAmount: null,   sortOrder: 31, colorCode: '#434343' },
+    { code: 'ПОЛОН', name: 'Полон',                                          groupName: 'Полон',           onSupply: 0, rewardAmount: null,   sortOrder: 32, colorCode: '#595959' },
+    { code: 'ШП',    name: 'Шпиталь',                                        groupName: 'Лікування',       onSupply: 0, rewardAmount: null,   sortOrder: 40, colorCode: '#faad14' },
+    { code: 'ВД',    name: 'Відрядження',                                    groupName: 'Відрядження',     onSupply: 0, rewardAmount: null,   sortOrder: 50, colorCode: '#13c2c2' },
+    { code: 'НП',    name: 'Не прибув',                                      groupName: 'Ні',              onSupply: 0, rewardAmount: null,   sortOrder: 60, colorCode: '#bfbfbf' },
+    { code: 'ВБВ',   name: 'Вибув',                                          groupName: 'Ні',              onSupply: 0, rewardAmount: null,   sortOrder: 61, colorCode: '#d9d9d9' },
+    { code: 'ЗВ',    name: "Звільнення від виконання службових обов'язків",  groupName: 'Ні',              onSupply: 0, rewardAmount: null,   sortOrder: 62, colorCode: '#8c8c8c' },
+    { code: 'АР',    name: 'Арешт',                                          groupName: 'Ні',              onSupply: 0, rewardAmount: null,   sortOrder: 63, colorCode: '#cf1322' }
+  ]
+  const stmt = sqliteDb.prepare(`
+    UPDATE status_types
+    SET name = ?, group_name = ?, on_supply = ?, reward_amount = ?, sort_order = ?, color_code = ?
+    WHERE code = ?
+      AND (name != ? OR group_name != ? OR on_supply != ? OR IFNULL(reward_amount, -1) != IFNULL(?, -1) OR sort_order != ? OR color_code != ?)
+  `)
+  let updated = 0
+  for (const r of rows) {
+    const result = stmt.run(
+      r.name, r.groupName, r.onSupply, r.rewardAmount, r.sortOrder, r.colorCode,
+      r.code,
+      r.name, r.groupName, r.onSupply, r.rewardAmount, r.sortOrder, r.colorCode
+    )
+    if (result.changes > 0) updated++
+  }
+  if (updated > 0) {
+    console.log(`[db] syncStatusTypesFromEjoos: оновлено ${updated} статусів`)
+  }
+}
+
+// v0.9.5: ЕЖООС.xlsx → 'Виключений', код → 'Виключення'. Приводимо існуючі
+// рядки в movements до канонічної форми. Парсер (ejoos-parser.ts) уже робить
+// це для нових імпортів — ця міграція ловить рядки, що вже лежать у БД.
+function normalizeMovementOrderTypes(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE movements SET order_type = 'Виключення'
+    WHERE order_type = 'Виключений'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] normalizeMovementOrderTypes: нормалізовано ${changes.cnt} рухів 'Виключений' → 'Виключення'`)
+  }
+}
+
+// v0.8.6: до v0.8.6 wizard переміщень з orderType='Виключення' створював
+// рядок у movements, але не міняв personnel.status — особа залишалась
+// active зі старою посадою/підрозділом/статусом. v0.8.7: ставимо лише
+// status='excluded' (consistent з PERSONNEL_DELETE), залишаючи поля
+// `current_*` як «останній відомий стан».
+//
+// v0.9.5: одночасно виставляємо excluded_at = order_date з активного руху
+// 'Виключення'. Без цього новi виключені (масив після normalizeMovementOrderTypes)
+// отримали б excluded_at = updated_at через v0.9.3 backfill — а updated_at у
+// них = момент імпорту (всі однакові), тож сортування за датою виключення
+// було б випадковим. Беремо order_date з руху — точна дата наказу.
+function fixExcludedFromMovements(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET
+      status = 'excluded',
+      excluded_at = COALESCE(
+        (SELECT m.order_date FROM movements m
+         WHERE m.personnel_id = personnel.id
+           AND m.order_type = 'Виключення'
+           AND m.is_active = 1
+         ORDER BY m.order_date DESC
+         LIMIT 1),
+        excluded_at,
+        datetime('now')
+      )
+    WHERE id IN (
+      SELECT m.personnel_id FROM movements m
+      WHERE m.is_active = 1 AND m.order_type = 'Виключення'
+    )
+    AND status = 'active'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] fixExcludedFromMovements: виключено ${changes.cnt} записів`)
+  }
+}
+
+// v0.9.7: до v0.9.7 у MOVEMENTS_CREATE не було гілки для orderType='Відновлення'
+// (дзеркальний баг до v0.8.6 з 'Виключення'). Користувач створював рух
+// «Відновлення» через wizard, рядок з'являвся в movements, але personnel.status
+// залишався 'excluded'. Тут одноразово приводимо до правильного стану.
+//
+// Інваріант v0.9.3: status='active' ⇒ excluded_at IS NULL. Тож у UPDATE
+// одночасно зануляємо excluded_at.
+//
+// current_subdivision/currentPositionIdx НЕ чіпаємо — вони залишаються як
+// «останній відомий стан» з періоду до виключення. Для Бачуріна, наприклад,
+// current_subdivision='Г-3' уже стояло (через v0.8.7 restoreSubdivisionForExcluded).
+function fixRestoredFromMovements(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET
+      status = 'active',
+      excluded_at = NULL,
+      updated_at = datetime('now')
+    WHERE id IN (
+      SELECT m.personnel_id FROM movements m
+      WHERE m.is_active = 1 AND m.order_type = 'Відновлення'
+    )
+    AND status = 'excluded'
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] fixRestoredFromMovements: відновлено ${changes.cnt} записів`)
+  }
+}
+
+// v0.8.7: компенсація бага v0.8.6, який обнуляв current_subdivision при
+// виключенні. ExcludedPersonnel фільтрує subdivision='Г-3' — тож виключені
+// з NULL випадали з UI. Ставимо їм 'Г-3' (єдиний підрозділ у додатку).
+function restoreSubdivisionForExcluded(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel SET current_subdivision = 'Г-3'
+    WHERE status = 'excluded' AND current_subdivision IS NULL
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] restoreSubdivisionForExcluded: відновлено ${changes.cnt} записів`)
+  }
+}
+
+// v0.9.3: до v0.9.3 виключені сортувались за personnel.updated_at — будь-яка
+// правка картки (фото, телефон, нотатка) піднімала особу вгору списку
+// (edge-case з нотатки v0.8.8). Окреме поле excluded_at стабільне:
+// встановлюється раз у момент виключення (PERSONNEL_DELETE / MOVEMENTS_CREATE
+// при orderType='Виключення'), занулюється при відновленні
+// (PERSONNEL_UPDATE при status='active'). Інваріант:
+// excluded_at IS NOT NULL ⇔ status='excluded'.
+//
+// Backfill: для існуючих excluded ставимо excluded_at = updated_at —
+// найкращий проксі за нотаткою v0.8.8 («у 99% випадків це фактичний
+// момент виключення»). Точніше відновити неможливо без сканування
+// movements/audit_log.
+// v0.9.6: для виключених з активним рухом 'Виключення' переписуємо excluded_at
+// на m.order_date — це точна дата наказу. До v0.9.6 v0.9.3 backfill ставив
+// updated_at (момент імпорту/правки), що для імпортованих з ЕЖООС давало
+// одну дату всім → у сортуванні `desc(excluded_at)` всі сидять купою з
+// secondary asc(fullName).
+//
+// Idempotent: на повторних викликах SUBQUERY поверне ту саму order_date,
+// UPDATE буде self-equal → no-op (фактично, але `changes()` все одно
+// рахує проходи).
+//
+// Не зачіпає виключених через PERSONNEL_DELETE без створення руху (там
+// SUBQUERY поверне NULL → IN-список не зачепить запис, excluded_at з
+// datetime('now') збережеться).
+function backfillExcludedAtFromMovements(sqliteDb: InstanceType<typeof Database>): void {
+  sqliteDb.exec(`
+    UPDATE personnel
+    SET excluded_at = (
+      SELECT m.order_date FROM movements m
+      WHERE m.personnel_id = personnel.id
+        AND m.order_type = 'Виключення'
+        AND m.is_active = 1
+        AND m.order_date IS NOT NULL
+      ORDER BY m.order_date DESC, m.id DESC
+      LIMIT 1
+    )
+    WHERE status = 'excluded'
+      AND id IN (
+        SELECT m.personnel_id FROM movements m
+        WHERE m.order_type = 'Виключення'
+          AND m.is_active = 1
+          AND m.order_date IS NOT NULL
+      )
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] backfillExcludedAtFromMovements: уточнено excluded_at для ${changes.cnt} виключених`)
+  }
+}
+
+function addIsCombatColumn(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  const hasColumn = cols.some((c) => c.name === 'is_combat')
+
+  if (!hasColumn) {
+    sqliteDb.exec('ALTER TABLE status_types ADD COLUMN is_combat INTEGER DEFAULT 0')
+    console.log('[db] addIsCombatColumn: додано колонку is_combat')
+  }
+
+  // Backfill для існуючих кодів — РВ/РЗ/РШ були COMBAT_CODES до v1.2.1.
+  // Idempotent: WHERE is_combat=0 пропустить вже виставлені.
+  sqliteDb.exec(`
+    UPDATE status_types
+    SET is_combat = 1
+    WHERE code IN ('РВ', 'РЗ', 'РШ') AND (is_combat IS NULL OR is_combat = 0)
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] addIsCombatColumn: backfill is_combat=1 для ${changes.cnt} кодів (РВ/РЗ/РШ)`)
+  }
+}
+
+// v1.3.0: до v1.3.0 ДГВ-табель використовував код 'заг' (Загинув). У ЕЖООС/
+// Табель.xlsm цей же стан позначається як '200' — і у нас же `status_types`
+// з v0.8.2 теж має код '200'. Уніфікуємо: dgv_marks.dgv_code='заг' → '200'.
+// Idempotent: якщо таких рядків нема — UPDATE нічого не зробить.
+function renameDgvCodeZagTo200(sqliteDb: InstanceType<typeof Database>): void {
+  // dgv_marks може ще не існувати на свіжих БД (createTables створює
+  // таблицю тут же поряд) — тому перевіряємо існування таблиці.
+  const tbl = sqliteDb
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='dgv_marks'`)
+    .get() as { name: string } | undefined
+  if (!tbl) return
+
+  const stmt = sqliteDb.prepare(`UPDATE dgv_marks SET dgv_code = '200' WHERE dgv_code = 'заг'`)
+  const result = stmt.run()
+  if (result.changes > 0) {
+    console.log(`[db] renameDgvCodeZagTo200: оновлено ${result.changes} записів dgv_marks (заг → 200)`)
+  }
+}
+
+// v1.4.0: додає колонку category у document_templates і робить backfill
+// існуючих шаблонів за іменем. 3 «архівні» шаблони (Наказ по ОС,
+// Відпускний квиток, Довідка про поранення) → 'retired' — UI ховає їх,
+// але FK з generated_documents.template_id лишається валідним.
+function addCategoryToDocumentTemplates(sqliteDb: InstanceType<typeof Database>): void {
+  const tbl = sqliteDb
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='document_templates'`)
+    .get() as { name: string } | undefined
+  if (!tbl) return
+
+  const cols = sqliteDb.prepare('PRAGMA table_info(document_templates)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'category')) {
+    sqliteDb.exec('ALTER TABLE document_templates ADD COLUMN category TEXT')
+    console.log('[db] addCategoryToDocumentTemplates: додано колонку category')
+  }
+
+  // Backfill — idempotent. Map: category → list of template names.
+  // Якщо нова робоча БД (вже мала category з createTables і свіжим seed),
+  // UPDATE нічого не зробить (рядки ще не існують або category вже стоїть).
+  const mapping: Array<[string, string[]]> = [
+    ['event', [
+      'Доповідь 1×300', 'Доповідь 1×БТ', 'Доповідь 1×ЗБ', 'Доповідь 200',
+      'Доповідь 2+×300', 'Доповідь повернення (рез. бат.)',
+      'Доповідь повернення (підрозділ)',
+      'Рапорт 1×300', 'Рапорт 1×ЗБ', 'Рапорт 200', 'Рапорт 2+×БТ'
+    ]],
+    ['raport', [
+      'Рапорт відпустка (за сімейними)',
+      'Рапорт відпустка (основна)',
+      'Рапорт ВПХ'
+    ]],
+    ['discharge', [
+      'Звільнення — відпустка УБД', 'Звільнення — здача посади',
+      'Звільнення — речове майно', 'Звільнення — направлення на облік',
+      'Звільнення — невикористана відпустка', 'Звільнення — оздоровчі',
+      'Звільнення — соціально-побутові'
+    ]],
+    ['retired', ['Наказ по ОС', 'Відпускний квиток', 'Довідка про поранення']]
+  ]
+
+  let totalUpdated = 0
+  for (const [cat, names] of mapping) {
+    const placeholders = names.map(() => '?').join(',')
+    const stmt = sqliteDb.prepare(
+      `UPDATE document_templates SET category = ? WHERE name IN (${placeholders}) AND (category IS NULL OR category != ?)`
+    )
+    const result = stmt.run(cat, ...names, cat)
+    totalUpdated += result.changes
+  }
+  if (totalUpdated > 0) {
+    console.log(`[db] addCategoryToDocumentTemplates: backfill category для ${totalUpdated} шаблонів`)
+  }
+}
+
+// v1.4.0: ALTER status_types ADD COLUMN dgv_code TEXT + initial mapping.
+// v1.4.2: mapping приведено до ЕЖООС (аркуш Налаштування → тСтатуси).
+// v1.4.3: ППД/АДП/БЗВП → секція 7 (не брав участі), ЗБ → null
+//   (боєць «обривається» в день зникнення — секцій 6/7 не отримує).
+// Логіка:
+//   * РВ/РОП → '100' (бойова виплата 100К)
+//   * РЗ → '30' (виплата 30К)
+//   * РШ → null (50К поза скоупом 12 ШР)
+//   * ППД → 'н/п', АДП → 'адп', БЗВП → 'н/п' (секція 7 — присутні в
+//     частині, але не на бойових позиціях, тож «не брав участі»)
+//   * ВП/ВПХ/ВПС/ВПП/ШП/ВД → відповідні DGV-коди (секція 7)
+//   * СЗЧ/АР/200/ПОЛОН → самі собі (секція 6 «не виплачувати»)
+//   * ЗБ → null (зник безвісти — день зникнення обриває всі секції,
+//     боєць лишається у п.1/п.7 тільки за дні до зникнення)
+// Юзер може скоригувати через `StatusTypesAdmin` після релізу.
+function addDgvCodeToStatusTypes(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) {
+    sqliteDb.exec('ALTER TABLE status_types ADD COLUMN dgv_code TEXT')
+    console.log('[db] addDgvCodeToStatusTypes: додано колонку dgv_code')
+  }
+
+  // Backfill — idempotent. WHERE dgv_code IS NULL гарантує, що ми не
+  // перезапишемо налаштування юзера після першого запуску.
+  // null-mapping не пишемо взагалі (він і так default).
+  const mapping: Array<[string, string]> = [
+    ['РВ', '100'],
+    ['РОП', '100'],
+    ['РЗ', '30'],
+    // РШ → null (50К поза скоупом 12 ШР)
+    ['ППД', 'н/п'],
+    ['АДП', 'адп'],
+    ['БЗВП', 'н/п'],
+    ['ВП', 'вп'],
+    ['ВПХ', 'ВПХ'],
+    ['ВПС', 'ВПС'],
+    ['ВПП', 'ВПП'],
+    ['ШП', 'шп'],
+    ['ВД', 'вд'],
+    ['СЗЧ', 'СЗЧ'],
+    ['АР', 'АР'],
+    ['200', '200'],
+    // ЗБ → null (зник безвісти — обриває звітність)
+    ['ПОЛОН', 'ПОЛОН']
+  ]
+  let totalUpdated = 0
+  for (const [statusCode, dgvCode] of mapping) {
+    const result = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code IS NULL`)
+      .run(dgvCode, statusCode)
+    totalUpdated += result.changes
+  }
+  if (totalUpdated > 0) {
+    console.log(`[db] addDgvCodeToStatusTypes: backfill dgv_code для ${totalUpdated} статусів`)
+  }
+}
+
+// v1.4.2: hotfix для існуючих БД, де v1.4.0 залив помилковий mapping
+// (РВ/РЗ/РШ/РОП → 'роп', ППД/АДП/БЗВП → '100'). Кожен UPDATE з guard'ом
+// на «поточне значення = старе помилкове» — щоб не перетерти, якщо юзер
+// уже змінив через адмінку статусів. Idempotent: на свіжих БД (v1.4.2+)
+// не зачіпає нічого, бо там вже правильні значення.
+function fixDgvMappingV142(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) return // ще не v1.4.0+
+
+  const fixes: Array<{ statusCode: string; oldDgv: string | null; newDgv: string | null }> = [
+    // Бойові — мали 'роп', мають '100' (РВ/РОП) або '30' (РЗ) або null (РШ)
+    { statusCode: 'РВ', oldDgv: 'роп', newDgv: '100' },
+    { statusCode: 'РОП', oldDgv: 'роп', newDgv: '100' },
+    { statusCode: 'РЗ', oldDgv: 'роп', newDgv: '30' },
+    { statusCode: 'РШ', oldDgv: 'роп', newDgv: null },
+    // ППД/АДП/БЗВП — мали '100', мають null
+    { statusCode: 'ППД', oldDgv: '100', newDgv: null },
+    { statusCode: 'АДП', oldDgv: '100', newDgv: null },
+    { statusCode: 'БЗВП', oldDgv: '100', newDgv: null }
+  ]
+
+  let totalFixed = 0
+  for (const { statusCode, oldDgv, newDgv } of fixes) {
+    // oldDgv тут завжди non-null (всі fixes мають конкретні старі значення),
+    // тож звичайний '=' OK. newDgv може бути null — better-sqlite3 биндить
+    // як NULL коректно.
+    const result = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code = ?`)
+      .run(newDgv, statusCode, oldDgv)
+    totalFixed += result.changes
+  }
+  if (totalFixed > 0) {
+    console.log(`[db] fixDgvMappingV142: виправлено dgv_code для ${totalFixed} статусів`)
+  }
+}
+
+// v1.4.3: ще один hotfix mapping'а — ППД/АДП/БЗВП після v1.4.2 лишилися
+// null, а мають бути секцією 7 ('н/п'/'адп'/'н/п'). ЗБ після v1.4.0 мав
+// 'ЗБ' (помилково в секцію 6) — стає null (звітність обривається).
+// Guard'и на конкретні «попередні» значення — не зачіпає юзерські правки.
+function fixDgvMappingV143(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(status_types)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'dgv_code')) return
+
+  // null → '...' fixes для ППД/АДП/БЗВП (вони були null після v1.4.2)
+  const nullFixes: Array<[string, string]> = [
+    ['ППД', 'н/п'],
+    ['АДП', 'адп'],
+    ['БЗВП', 'н/п']
+  ]
+  let total = 0
+  for (const [code, dgvCode] of nullFixes) {
+    const r = sqliteDb
+      .prepare(`UPDATE status_types SET dgv_code = ? WHERE code = ? AND dgv_code IS NULL`)
+      .run(dgvCode, code)
+    total += r.changes
+  }
+
+  // 'ЗБ' → null (видаляємо помилковий маппинг із секції 6)
+  const zbFix = sqliteDb
+    .prepare(`UPDATE status_types SET dgv_code = NULL WHERE code = 'ЗБ' AND dgv_code = 'ЗБ'`)
+    .run()
+  total += zbFix.changes
+
+  if (total > 0) {
+    console.log(`[db] fixDgvMappingV143: уточнено dgv_code для ${total} статусів`)
+  }
+}
+
+// v1.6.0: ALTER personnel ADD COLUMN br_role TEXT. Persistent роль бійця
+// у Бойовому розпорядженні (одна з 15 BR_ROLES або null). Адмінка
+// /settings/br-roles дозволяє юзеру призначити вручну, в т.ч. через
+// «Auto-fill defaults» кнопку (autoAssignRole за посадою).
+function addBrRoleColumn(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(personnel)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'br_role')) {
+    sqliteDb.exec('ALTER TABLE personnel ADD COLUMN br_role TEXT')
+    console.log('[db] addBrRoleColumn: додано колонку br_role')
+  }
+}
+
+/**
+ * v1.7.4: DROP TABLE dgv_marks. Таблиця помічена @deprecated у v1.4.0
+ * (рефакторинг ДГВ-табелю через attendance × status_types.dgv_code).
+ * Запис припинено з v1.4.0; після 13 версій live-запуску безпечно
+ * прибрати фізично. Idempotent — DROP IF EXISTS.
+ */
+function dropDgvMarksTable(sqliteDb: InstanceType<typeof Database>): void {
+  const exists = sqliteDb
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='dgv_marks'")
+    .get()
+  if (exists) {
+    sqliteDb.exec('DROP TABLE IF EXISTS dgv_marks')
+    console.log('[db] dropDgvMarksTable: таблиця dgv_marks видалена (deprecated з v1.4.0)')
+  }
+}
+
+function addExcludedAtColumn(sqliteDb: InstanceType<typeof Database>): void {
+  const cols = sqliteDb.prepare('PRAGMA table_info(personnel)').all() as { name: string }[]
+  const hasColumn = cols.some((c) => c.name === 'excluded_at')
+
+  // 1. Колонка — тільки для старих БД (нові вже мають її з createTables)
+  if (!hasColumn) {
+    sqliteDb.exec('ALTER TABLE personnel ADD COLUMN excluded_at TEXT')
+    console.log('[db] addExcludedAtColumn: додано колонку excluded_at')
+  }
+
+  // 2. Індекс — створюємо завжди (ідемпотентно). У createTables ми НЕ
+  //    створюємо цей індекс, бо CREATE INDEX падає на існуючих БД до того,
+  //    як ALTER TABLE встигне додати колонку.
+  sqliteDb.exec('CREATE INDEX IF NOT EXISTS idx_personnel_excluded_at ON personnel(excluded_at)')
+
+  // 3. Backfill — idempotent (WHERE excluded_at IS NULL).
+  //    Для нових БД нічого не зробить (нема excluded). Для старих —
+  //    проставить excluded_at = updated_at для всіх існуючих виключених.
+  sqliteDb.exec(`
+    UPDATE personnel
+    SET excluded_at = updated_at
+    WHERE status = 'excluded' AND excluded_at IS NULL
+  `)
+  const changes = sqliteDb.prepare('SELECT changes() as cnt').get() as { cnt: number }
+  if (changes.cnt > 0) {
+    console.log(`[db] addExcludedAtColumn: backfill для ${changes.cnt} виключених`)
+  }
+}
