@@ -1,0 +1,30 @@
+# Normalize line endings: store as LF in the repo, check out native on each OS
+* text=auto
+
+# Force LF for files that must stay LF regardless of platform
+*.sh        text eol=lf
+*.md        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.cjs       text eol=lf
+*.mjs       text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Treat known binary types as binary (no EOL conversion, no diff)
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.docx      binary
+*.xlsx      binary
+*.asar      binary
+*.node      binary
+*.dll       binary
+*.exe       binary
+*.pak       binary
+*.bin       binary
+*.dat       binary
